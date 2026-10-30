@@ -92,6 +92,10 @@ gate(
   pkgName,
 );
 gate(
+  'client slot register id equals prompt-refiner',
+  clientText.includes('id: "prompt-refiner"') && !clientText.includes('id: "prompt-optimizer"'),
+);
+gate(
   'client keeps React external (no inlined copy)',
   clientText.includes('require("react")') &&
     !clientText.includes('__SECRET_INTERNALS') &&

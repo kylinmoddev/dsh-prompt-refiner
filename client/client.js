@@ -1080,9 +1080,9 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-refiner", factory: (require) => {
       return ctx.slots.register(
         {
           name: "conversation.input.right",
-          id: "prompt-optimizer",
+          id: "prompt-refiner",
           order: 5,
-          label: function () { return "提示词优化"; },
+          label: function () { return "提示词润色"; },
           inject: function (sessionId) {
             var directory = ctx.modelDirectories.directoryFor(sessionId);
             if (!directory) {
