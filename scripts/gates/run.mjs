@@ -113,6 +113,18 @@ const usedServices = [...new Set([...hostText.matchAll(/\bctx\.([a-zA-Z][a-zA-Z0
 const missing = usedServices.filter((service) => !injectList.includes(service));
 gate('host inject covers every ctx.* service', missing.length === 0, missing.join(', '));
 
+// ------------------------------------------------- v0.5.0 fallback contract ---
+const srcText = read('src/index.js');
+gate(
+  'fallback contract: intent-check fallback path exists',
+  srcText.includes("'intent-check'") && hostText.includes("'intent-check'") && hostText.includes('fallback'),
+);
+gate(
+  'multiCandidate request field parsed with legacy default path',
+  srcText.includes('multiCandidate') && hostText.includes('multiCandidate') &&
+    srcText.includes('MULTI_CANDIDATE_SERVER'),
+);
+
 // ------------------------------------------------------------------- report ---
 let failures = 0;
 for (const result of results) {
