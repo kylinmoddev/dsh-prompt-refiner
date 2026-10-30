@@ -38,6 +38,8 @@ const PLUGIN_VERSION = readPluginVersion();
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB is enough for long drafts.
 const OPTIMIZER_TEMPERATURE = 0.4; // stable, focused rewrites without being too rigid
 const CONTEXT_MESSAGE_LIMIT = 6; // recent messages used when "结合上下文" is enabled
+const CONTEXT_CHAR_LIMIT = 8000; // rule-based trimming kicks in above this total length
+const MULTI_CANDIDATE_SERVER = true; // server-side master switch for multi-candidate selection
 
 const OPTIMIZER_SYSTEM_PROMPT = `You are a world-class prompt engineering expert. The user gives you a draft prompt. Your job is to deeply understand it, then rewrite it into a high-quality, ready-to-use prompt.
 
@@ -72,6 +74,11 @@ Rules for the rewritten prompt:
 - If the original is already excellent, make only a light polish.
 
 The final output must be a prompt that a person could paste directly and get a better result than the original.
+
+Final self-check before you output (run it silently, it is mandatory):
+- Verify every {{variable}} placeholder from the draft appears verbatim in your output; restore any that are missing, renamed, or filled in.
+- Verify every 【...】 mark the draft already contains is still present in your output; restore any that were dropped or reworded.
+- Verify every explicit user requirement and every URL from the draft survived the rewrite; if anything was lost, weakened, or altered, fix it in the output before answering.
 `;
 
 const STYLE_INSTRUCTIONS = {
@@ -183,6 +190,41 @@ function errorCode(error) {
 }
 
 /**
+ * Extract the code-level intent anchors a rewrite must never lose:
+ * {{variable}} placeholders, 【...】 marks already in the draft, and URLs.
+ */
+function extractIntentItems(text) {
+  const items = [];
+  for (const match of text.matchAll(/\{\{[^{}]*\}\}/g)) items.push(match[0]);
+  for (const match of text.matchAll(/【[^【】]*】/g)) items.push(match[0]);
+  for (const match of text.matchAll(/https?:\/\/[^\s<>"'）)]+/g)) items.push(match[0]);
+  return [...new Set(items)];
+}
+
+/**
+ * Code-level intent-preservation check (never trust the model's own
+ * self-check alone: failure or doubt means NOT passed). Returns the list of
+ * anchors missing from the optimized text.
+ */
+function missingIntentItems(original, optimized) {
+  return extractIntentItems(original).filter((item) => !optimized.includes(item));
+}
+
+/**
+ * Turn a raw LLM result into the response payload. Failure or doubt is never
+ * silently passed off as success — the reason lands in `fallback`.
+ */
+function finalizeOptimized(original, optimized) {
+  if (typeof optimized !== 'string' || optimized.trim() === '') {
+    return { optimized: original, fallback: 'empty-result' };
+  }
+  if (missingIntentItems(original, optimized).length > 0) {
+    return { optimized: original, fallback: 'intent-check' };
+  }
+  return { optimized };
+}
+
+/**
  * Reconcile a requested reasoning effort with the capabilities the selected
  * model actually advertises.
  *
@@ -228,13 +270,59 @@ function messageText(message) {
     .join(' ');
 }
 
+/**
+ * Hard-truncate a text keeping both ends: head…tail with an ellipsis marker.
+ */
+function hardTruncate(text, budget) {
+  if (text.length <= budget) return text;
+  if (budget <= 20) return text.slice(0, budget);
+  const head = Math.ceil((budget - 1) / 2);
+  const tail = Math.floor((budget - 1) / 2);
+  return `${text.slice(0, head)}…${text.slice(text.length - tail)}`;
+}
+
+/**
+ * Sentence-level trim of one context message: keep the first and last
+ * sentences (they carry the framing and the conclusion), then hard-truncate
+ * whatever still overshoots the budget. Idea borrowed from LLMLingua's
+ * sentence-level budget pass (prompt_compressor.py:1243), minus the model.
+ */
+function compressContextMessage(text, budget) {
+  if (text.length <= budget) return text;
+  const sentences = text.split(/(?<=[。.!！?？;\n])/).filter((part) => part.trim() !== '');
+  const first = sentences[0] ?? '';
+  const last = sentences.length > 1 ? sentences[sentences.length - 1] : '';
+  let kept = sentences.length > 1 ? first + last : first;
+  if (kept.length > budget) kept = hardTruncate(kept, budget);
+  return kept;
+}
+
 function buildRecentContext(session, limit = CONTEXT_MESSAGE_LIMIT) {
   if (!session || typeof session.deriveMessages !== 'function') return '';
   const messages = session.deriveMessages();
   const recent = messages.slice(-limit).filter((message) => messageText(message).trim() !== '');
   if (recent.length === 0) return '';
-  return recent
-    .map((message) => `${message.role === 'user' ? 'user' : 'assistant'}: ${messageText(message)}`)
+  const parts = recent.map((message) => ({
+    role: message.role === 'user' ? 'user' : 'assistant',
+    text: messageText(message),
+  }));
+  const totalLength = parts.reduce((sum, part) => sum + part.text.length, 0) + parts.length;
+  if (totalLength <= CONTEXT_CHAR_LIMIT) {
+    return parts.map((part) => `${part.role}: ${part.text}`).join('\n');
+  }
+  // Over budget: rule-based trim. User messages get priority (they carry the
+  // actual requests); assistants keep head+tail sentences; hard truncation is
+  // the last resort so the limit always holds.
+  const userParts = parts.filter((part) => part.role === 'user');
+  const assistantParts = parts.filter((part) => part.role !== 'user');
+  const share = (count) => Math.max(200, Math.floor((CONTEXT_CHAR_LIMIT - parts.length * 13) * (count === userParts.length ? 0.6 : 0.4)) / Math.max(count, 1));
+  const userBudget = Math.floor(share(userParts.length));
+  const assistantBudget = Math.floor(share(assistantParts.length));
+  return parts
+    .map((part) => {
+      const budget = part.role === 'user' ? userBudget : assistantBudget;
+      return `${part.role}: ${compressContextMessage(part.text, budget)}`;
+    })
     .join('\n');
 }
 
@@ -288,6 +376,7 @@ export function apply(ctx) {
       const reasoningEffort = typeof body?.reasoningEffort === 'string' ? body.reasoningEffort : undefined;
       const style = typeof body?.style === 'string' ? body.style : 'standard';
       const includeContext = body?.includeContext === true;
+      const multiCandidate = body?.multiCandidate === true;
       const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : undefined;
 
       if (provider === '' || model === '' || rawText === '') {
@@ -317,8 +406,8 @@ export function apply(ctx) {
 
       const system = buildSystemPrompt(style, contextText);
 
-      /** One dispatch attempt; `effort` undefined means "let the model decide". */
-      const attempt = async (effort) => {
+      /** One raw dispatch; `effort` undefined means "let the model decide". */
+      const dispatch = async (effort) => {
         const options = {
           provider,
           model,
@@ -330,24 +419,86 @@ export function apply(ctx) {
         return collectText(ctx.llm.stream(options));
       };
 
+      /** One candidate with the UNSUPPORTED_REASONING_EFFORT safety net. */
+      const generateCandidate = async (effort) => {
+        try {
+          return await dispatch(effort);
+        } catch (error) {
+          if (effort === undefined || errorCode(error) !== 'UNSUPPORTED_REASONING_EFFORT') throw error;
+          return dispatch(undefined);
+        }
+      };
+
+      /**
+       * One LLM pass picking the better candidate. Returns 'A', 'B', or null
+       * when the verdict is missing or unparseable (the caller then keeps
+       * candidate A — an undecidable verdict must not invent a winner).
+       */
+      const JUDGE_FOCUS = {
+        concise: 'the more concise candidate that still preserves every key constraint and acceptance criterion',
+        standard: 'the more balanced and directly executable candidate',
+        detailed: 'the more comprehensive and self-contained candidate',
+      };
+      const judgeCandidates = async (candidateA, candidateB) => {
+        const focus = JUDGE_FOCUS[style] ?? JUDGE_FOCUS.standard;
+        const judgeSystem = 'You are a strict prompt-quality judge. Compare two optimized versions of the same draft prompt. Reply with ONLY a JSON object: {"winner":"A"} or {"winner":"B"}. No other text.';
+        const judgeText = `Original draft:\n<original>\n${rawText}\n</original>\n\nCandidate A:\n<candidate>\n${candidateA}\n</candidate>\n\nCandidate B:\n<candidate>\n${candidateB}\n</candidate>\n\nEvaluation focus for this optimization style: pick ${focus}. Also penalize any candidate that lost {{variable}} placeholders, 【...】 marks, or URLs from the original. Output the JSON verdict only.`;
+        const verdict = await collectText(ctx.llm.stream({
+          provider,
+          model,
+          messages: [{
+            id: randomUUID(),
+            role: 'user',
+            content: [{ type: 'text', text: judgeText }],
+            source: { kind: 'plugin', plugin: name },
+          }],
+          system: judgeSystem,
+          temperature: 0,
+        }));
+        const match = verdict.match(/\{\s*"winner"\s*:\s*"(A|B)"\s*\}/);
+        return match === null ? null : match[1];
+      };
+
       try {
         const effort = await acceptedReasoningEffort(ctx, provider, model, reasoningEffort);
+        if (multiCandidate && MULTI_CANDIDATE_SERVER) {
+          const candidateA = await generateCandidate(effort);
+          const candidateB = await generateCandidate(effort);
+          if (candidateA === '' || candidateB === '') {
+            throw new Error('the model returned an empty candidate');
+          }
+          let winnerLetter = 'A';
+          try {
+            winnerLetter = (await judgeCandidates(candidateA, candidateB)) ?? 'A';
+          } catch {
+            winnerLetter = 'A'; // judge failed → keep candidate A, never fail the request
+          }
+          const winner = winnerLetter === 'B' ? candidateB : candidateA;
+          const finalized = finalizeOptimized(rawText, winner);
+          sendJson(response, 200, { ok: true, optimized: finalized.optimized, fallback: finalized.fallback, candidates: 2 });
+          return;
+        }
         let optimized;
         try {
-          optimized = await attempt(effort);
+          optimized = await generateCandidate(effort);
         } catch (error) {
           // Safety net for a capability lookup that could not see the truth (an
           // adapter raced by HMR, or a route registered after the catalog load):
           // retry once with no explicit effort instead of failing the feature.
           if (effort === undefined || errorCode(error) !== 'UNSUPPORTED_REASONING_EFFORT') throw error;
-          optimized = await attempt(undefined);
+          optimized = await generateCandidate(undefined);
         }
-        if (optimized === '') {
-          throw new Error('the model returned an empty optimized prompt');
+        const finalized = finalizeOptimized(rawText, optimized);
+        // Legacy path: byte-identical success payload when nothing fell back.
+        if (finalized.fallback === undefined) {
+          sendJson(response, 200, { ok: true, optimized: finalized.optimized });
+        } else {
+          sendJson(response, 200, { ok: true, optimized: finalized.optimized, fallback: finalized.fallback });
         }
-        sendJson(response, 200, { ok: true, optimized });
       } catch (error) {
-        sendJson(response, 500, errorPayload(error));
+        // Failure fallback contract: LLM error/timeout/empty must not fail the
+        // feature — return the original draft with the reason in `fallback`.
+        sendJson(response, 200, { ok: true, optimized: rawText, fallback: 'llm-error' });
       }
     };
 
