@@ -1,10 +1,10 @@
-window.__ModuleLoader__.load({ id: "dsh-prompt-refiner", factory: (require) => {
+window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (require) => {
   var module = { exports: {} };
   var exports = module.exports;
   var React = require("react");
   var ReactDOM = require("react-dom");
 
-  var PACKAGE_ID = "dsh-prompt-refiner";
+  var PACKAGE_ID = "@kylinmoddev/dsh-prompt-refiner";
   var ENDPOINT = "/dsh-prompt-refiner/optimize";
   var STYLE_ID = "dsh-prompt-refiner-styles";
   var SETTINGS_KEY = "dsh-prompt-refiner:settings";

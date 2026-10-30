@@ -87,8 +87,8 @@ const clientText = read('lib/client.js');
 gate('lib/index.js exists (run `node scripts/build.mjs`)', hostText !== '');
 gate('lib/client.js exists (run `node scripts/build.mjs`)', clientText !== '');
 gate(
-  'client ModuleLoader id equals short plugin id',
-  clientText.includes(`id: "${shortId}"`),
+  'client ModuleLoader id equals scoped package name',
+  clientText.includes(`id: "${pkgName}"`),
   pkgName,
 );
 gate(
