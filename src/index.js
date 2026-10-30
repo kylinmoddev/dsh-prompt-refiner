@@ -57,13 +57,15 @@ FIRST, silently analyze the user's input as thoroughly as possible. Consider at 
 Use this analysis to rewrite the draft. Do not output the analysis.
 
 Rules for the rewritten prompt:
-- Output ONLY the optimized prompt. No commentary, explanation, preface, or markdown code fences.
+- Output ONLY the optimized prompt — no commentary, explanation, or preface. Do not wrap the whole output in a markdown code fence; markdown fences INSIDE the prompt are fine when the prompt itself needs them. Sole exception: in detailed style, the trailing 【placeholder】 gap list defined by the style instructions is part of the output, not commentary.
 - Keep the same language as the user's input.
 - Preserve the user's original intent and all explicit requirements.
-- Make implicit assumptions explicit only when they are safe and strongly implied; otherwise mark missing information with 【placeholder】.
+- Make implicit assumptions explicit only when they are safe and strongly implied; otherwise mark the gap inline as 【placeholder: what is missing】 so the user can find and fill it — each mark must read as ready-to-use once filled. Preserve any 【...】 marks the draft already contains.
 - Convert vague instructions into concrete, actionable, verifiable instructions: expand vague asks ("keep it flexible", "don't be stiff") into numbered, checkable criteria whose count follows the content rather than padding to a target.
 - State the goal, the basis, and the acceptance criteria clearly. When key information is missing, list the gaps as 【placeholder】 items instead of assuming them.
 - If the draft contains runtime variable placeholders like {{variable_name}}, preserve them verbatim in the rewrite: do not rename, drop, or fill them in.
+- Scale the depth of your analysis and the size of the rewrite to the draft: a short or already-clear draft needs a light touch, not all ten steps at full depth.
+- If the draft is not really a prompt (a bare question or chit-chat), treat it as raw material: rewrite it into the prompt the user evidently needs, rather than keeping it verbatim.
 - Use structure (short paragraphs, numbered steps, clear sections) only when it improves clarity.
 - Do not invent facts, goals, constraints, or data the user did not express or clearly imply.
 - If the original is already excellent, make only a light polish.
@@ -90,7 +92,7 @@ Optimization style: standard.
 Optimization style: detailed.
 - Produce a comprehensive, self-contained prompt.
 - Land each of the four core elements explicitly - role, goal, constraints, output format - as its own section or numbered item; where the draft does not supply one, mark it with 【placeholder】 rather than leaving it implicit.
-- After the rewrite, list the key information the user still needs to provide as a short 【placeholder】 gap list.
+- End with a short gap list under a 【待补充】 heading, mirroring the inline 【placeholder】 marks; it is part of the output by contract.
 - Choose the structure that fits the content (sectioned role-card style, or a flat task-brief with numbered requirements); do not force one fixed template.
 - Explicitly cover context, steps, and quality criteria as well.
 `,
