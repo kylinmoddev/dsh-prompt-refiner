@@ -1,5 +1,5 @@
 /**
- * Consistency gates for dsh-prompt-optimizer.
+ * Consistency gates for dsh-prompt-refiner.
  *
  * Checks the DSH plugin contract that would otherwise fail silently at load
  * time: manifest fields, exports wiring, patch/bundle wiring, the three-way
@@ -35,8 +35,9 @@ try {
 }
 if (manifest === null) manifest = {};
 const pkgName = typeof manifest.name === 'string' ? manifest.name : '';
+const shortId = 'dsh-prompt-refiner';
 
-gate('package.json name is lowercase-hyphenated', /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(pkgName), pkgName);
+gate('package.json name is scoped lowercase-hyphenated', /^@[a-z0-9-]+\/[a-z0-9-]+$/.test(pkgName), pkgName);
 gate('package.json type is "module"', manifest.type === 'module', manifest.type);
 // `main` may be written with or without the leading `./`: Node accepts both, and
 // DSH resolves the bundle through `exports` anyway. What matters here is that it
@@ -65,13 +66,13 @@ const patchRelative = typeof manifest.dsh?.bundle?.patch === 'string' ? manifest
 const patchText = read(patchRelative);
 gate('cordis.patch.yml exists', patchText !== '', patchRelative);
 gate(
-  'patch insert id equals package name',
-  new RegExp(`\\bid:\\s*${pkgName}\\s*$`, 'm').test(patchText),
+  'patch insert id equals short plugin id',
+  new RegExp(`\\bid:\\s*${shortId}\\s*$`, 'm').test(patchText),
   pkgName,
 );
 gate(
   'patch insert name equals package name',
-  new RegExp(`\\bname:\\s*${pkgName}\\s*$`, 'm').test(patchText),
+  patchText.includes(`name: "${pkgName}"`),
   pkgName,
 );
 
@@ -81,8 +82,8 @@ const clientText = read('lib/client.js');
 gate('lib/index.js exists (run `node scripts/build.mjs`)', hostText !== '');
 gate('lib/client.js exists (run `node scripts/build.mjs`)', clientText !== '');
 gate(
-  'client ModuleLoader id equals package name',
-  clientText.includes(`__ModuleLoader__.load({ id: "${pkgName}"`),
+  'client ModuleLoader id equals short plugin id',
+  clientText.includes(`id: "${shortId}"`),
   pkgName,
 );
 gate(

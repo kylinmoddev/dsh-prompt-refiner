@@ -1,5 +1,5 @@
 /**
- * dsh-prompt-optimizer (v2) — server half.
+ * dsh-prompt-refiner (v2) — server half.
  *
  * Exposes a small trusted-local HTTP route that calls the user's currently
  * selected model (provider/model are sent from the browser client) and returns
@@ -14,12 +14,12 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
-export const name = 'dsh-prompt-optimizer';
+export const name = 'dsh-prompt-refiner';
 
 export const inject = ['webServer', 'llm', 'sessions'];
 
-const ROUTE_PATH = '/dsh-prompt-optimizer/optimize';
-const ROUTE_PING = '/dsh-prompt-optimizer/ping';
+const ROUTE_PATH = '/dsh-prompt-refiner/optimize';
+const ROUTE_PING = '/dsh-prompt-refiner/ping';
 
 /** The desktop window's own origin; the shell's protocol proxy strips Origin, but browsers may not. */
 const DESKTOP_ORIGIN = 'dsh-app://app';
@@ -382,5 +382,5 @@ export function apply(ctx) {
       unregisterOptimize();
       unregisterPing();
     };
-  }, 'dsh-prompt-optimizer: optimize route');
+  }, 'dsh-prompt-refiner: optimize route');
 }

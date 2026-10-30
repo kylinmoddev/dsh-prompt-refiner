@@ -1,7 +1,7 @@
 {
-  "name": "dsh-prompt-optimizer",
-  "version": "0.3.2",
-  "description": "DSH 提示词优化插件：在输入框底部（模型选择左侧）一键调用当前选中的大模型优化草稿。",
+  "name": "@kylinmoddev/dsh-prompt-refiner",
+  "version": "0.4.0",
+  "description": "DSH 提示词润色插件（dsh-prompt-refiner）：✨ 一键调用当前模型优化草稿。dsh-prompt-optimizer 的独立增强分支，可与原版并存。",
   "type": "module",
   "license": "MIT",
   "keywords": [
@@ -15,11 +15,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kylinmoddev/dsh-prompt-optimizer.git"
+    "url": "git+https://github.com/kylinmoddev/dsh-prompt-refiner.git"
   },
-  "homepage": "https://github.com/kylinmoddev/dsh-prompt-optimizer#readme",
+  "homepage": "https://github.com/kylinmoddev/dsh-prompt-refiner#readme",
   "bugs": {
-    "url": "https://github.com/kylinmoddev/dsh-prompt-optimizer/issues"
+    "url": "https://github.com/kylinmoddev/dsh-prompt-refiner/issues"
   },
   "main": "lib/index.js",
   "exports": {

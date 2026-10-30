@@ -1,6 +1,6 @@
-# dsh-prompt-optimizer（增强版）
+# dsh-prompt-refiner（增强版）
 
-> 本仓库是 [kee0012/dsh-prompt-optimizer](https://github.com/kee0012/dsh-prompt-optimizer) 的增强分支，遵循原项目 MIT 许可。增强内容：可核查标准展开、`{{变量}}` 占位符保护、受众/背景显式落地、【placeholder】规范、上下文使用纪律、输出契约修复——只改服务端提示词措辞，UI 与交互保持原样。
+> 本仓库是 [kee0012/dsh-prompt-refiner](https://github.com/kee0012/dsh-prompt-refiner) 的增强分支，遵循原项目 MIT 许可。增强内容：可核查标准展开、`{{变量}}` 占位符保护、受众/背景显式落地、【placeholder】规范、上下文使用纪律、输出契约修复——只改服务端提示词措辞，UI 与交互保持原样。
 
 DSH 提示词优化插件：在输入框工具栏放一个 ✨ 按钮，用当前会话所选模型优化草稿并直接写回。
 
@@ -24,11 +24,11 @@ DSH 提示词优化插件：在输入框工具栏放一个 ✨ 按钮，用当�
 
 ## 安装
 
-插件托管在 GitHub（`kylinmoddev/dsh-prompt-optimizer`，未发布到 npm），DSH 支持以 git 依赖方式直接安装：
+插件托管在 GitHub（`kylinmoddev/dsh-prompt-refiner`，未发布到 npm），DSH 支持以 git 依赖方式直接安装：
 
 ```sh
 # 从 GitHub 安装（推荐，日常使用；拉取默认分支最新提交）
-dsh plugin --profile desktop add github:kylinmoddev/dsh-prompt-optimizer
+dsh plugin --profile desktop add github:kylinmoddev/dsh-prompt-refiner
 ```
 
 > 安装后需要**重启 DSH**，新的服务端代码与 client bundle 才会生效。
@@ -48,14 +48,14 @@ dsh plugin --profile desktop add github:kylinmoddev/dsh-prompt-optimizer
 ## 实现方式
 
 - **客户端**：注册到 `conversation.input.right` 插槽，读取并写回输入框草稿，设置保存在 localStorage。
-- **服务端**：注册同源 HTTP 路由 `POST /dsh-prompt-optimizer/optimize`，按风格拼接系统提示词，以 `temperature = 0.4` 调用 DSH 的 LLM 适配器并回传优化文本。
+- **服务端**：注册同源 HTTP 路由 `POST /dsh-prompt-refiner/optimize`，按风格拼接系统提示词，以 `temperature = 0.4` 调用 DSH 的 LLM 适配器并回传优化文本。
 - 该路由只接受本机 UI 发起的请求（同源校验，其它来源一律 403），请求体上限 1 MiB。
 - 插件只传递 `provider`、`model`、`text`、`style` 等必要字段，**不接触凭据文件**。
 
 ## 目录结构
 
 ```
-dsh-prompt-optimizer/
+dsh-prompt-refiner/
 ├── package.json          # DSH bundle 清单 + client 注入声明
 ├── cordis.patch.yml      # 把插件插入 DSH 组合层
 ├── LICENSE               # MIT
@@ -77,8 +77,8 @@ dsh-prompt-optimizer/
 
 ## 反馈与贡献
 
-- 本增强分支问题反馈：<https://github.com/kylinmoddev/dsh-prompt-optimizer/issues>
-- 原版插件与上游问题：<https://github.com/kee0012/dsh-prompt-optimizer/issues>
+- 本增强分支问题反馈：<https://github.com/kylinmoddev/dsh-prompt-refiner/issues>
+- 原版插件与上游问题：<https://github.com/kee0012/dsh-prompt-refiner/issues>
 - 欢迎提交 Issue 与 Pull Request。
 
 ### 从源码构建

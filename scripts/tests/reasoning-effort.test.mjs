@@ -18,7 +18,7 @@
  */
 const { apply } = await import(process.argv[2] ?? '../../src/index.js');
 
-const ROUTE = '/dsh-prompt-optimizer/optimize';
+const ROUTE = '/dsh-prompt-refiner/optimize';
 
 // --------------------------------------------------------------- fake host ---
 

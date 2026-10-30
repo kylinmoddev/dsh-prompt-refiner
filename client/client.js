@@ -1,13 +1,13 @@
-window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) => {
+window.__ModuleLoader__.load({ id: "dsh-prompt-refiner", factory: (require) => {
   var module = { exports: {} };
   var exports = module.exports;
   var React = require("react");
   var ReactDOM = require("react-dom");
 
-  var PACKAGE_ID = "dsh-prompt-optimizer";
-  var ENDPOINT = "/dsh-prompt-optimizer/optimize";
-  var STYLE_ID = "dsh-prompt-optimizer-styles";
-  var SETTINGS_KEY = "dsh-prompt-optimizer:settings";
+  var PACKAGE_ID = "dsh-prompt-refiner";
+  var ENDPOINT = "/dsh-prompt-refiner/optimize";
+  var STYLE_ID = "dsh-prompt-refiner-styles";
+  var SETTINGS_KEY = "dsh-prompt-refiner:settings";
 
   var DEFAULT_SETTINGS = {
     style: "standard",
@@ -21,15 +21,15 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
 
   var cssText = `
 /* ---- compact toolbar group (main icon + caret) ---- */
-.dsh-prompt-optimizer {
+.dsh-prompt-refiner {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   margin: 0 3px;
   position: relative;
 }
-.dsh-prompt-optimizer__main,
-.dsh-prompt-optimizer__caret {
+.dsh-prompt-refiner__main,
+.dsh-prompt-refiner__caret {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
@@ -41,42 +41,42 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   cursor: pointer;
   transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
-.dsh-prompt-optimizer__main {
+.dsh-prompt-refiner__main {
   width: 30px;
   padding: 0;
   border-radius: 14px 0 0 14px;
 }
-.dsh-prompt-optimizer__caret {
+.dsh-prompt-refiner__caret {
   width: 24px;
   padding: 0;
   border-left: none;
   border-radius: 0 14px 14px 0;
 }
-.dsh-prompt-optimizer__main:hover:not(:disabled),
-.dsh-prompt-optimizer__caret:hover:not(:disabled) {
+.dsh-prompt-refiner__main:hover:not(:disabled),
+.dsh-prompt-refiner__caret:hover:not(:disabled) {
   border-color: var(--dsw-alias-brand-primary, #4f6ef7);
   background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 5%));
   color: var(--dsw-alias-label-primary, #111);
 }
-.dsh-prompt-optimizer__caret:disabled {
+.dsh-prompt-refiner__caret:disabled {
   border-left: none;
 }
-.dsh-prompt-optimizer__main:disabled {
+.dsh-prompt-refiner__main:disabled {
   opacity: 0.45;
   cursor: default;
 }
-.dsh-prompt-optimizer__caret:disabled {
+.dsh-prompt-refiner__caret:disabled {
   opacity: 0.45;
   cursor: default;
 }
-.dsh-prompt-optimizer__caret[aria-expanded="true"] .dsh-prompt-optimizer__caretIcon {
+.dsh-prompt-refiner__caret[aria-expanded="true"] .dsh-prompt-refiner__caretIcon {
   transform: rotate(180deg);
 }
-.dsh-prompt-optimizer__caretIcon {
+.dsh-prompt-refiner__caretIcon {
   display: inline-flex;
   transition: transform 120ms ease;
 }
-.dsh-prompt-optimizer__dot {
+.dsh-prompt-refiner__dot {
   position: absolute;
   top: 5px;
   right: 3px;
@@ -86,10 +86,10 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   background: var(--dsw-alias-brand-primary, #4f6ef7);
   pointer-events: none;
 }
-.dsh-prompt-optimizer__main[data-busy="true"] {
+.dsh-prompt-refiner__main[data-busy="true"] {
   cursor: progress;
 }
-.dsh-prompt-optimizer__spinner {
+.dsh-prompt-refiner__spinner {
   box-sizing: border-box;
   width: 13px;
   height: 13px;
@@ -103,7 +103,7 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
 }
 
 /* ---- popover (settings) ---- */
-.dsh-prompt-optimizer__popover {
+.dsh-prompt-refiner__popover {
   box-sizing: border-box;
   position: fixed;
   z-index: 9990;
@@ -117,14 +117,14 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   font-size: 12px;
   line-height: 18px;
 }
-.dsh-prompt-optimizer__popoverTitle {
+.dsh-prompt-refiner__popoverTitle {
   margin: 0 0 6px;
   font-size: 12px;
   font-weight: 600;
   line-height: 18px;
   color: var(--dsw-alias-label-secondary, #444);
 }
-.dsh-prompt-optimizer__popoverRow {
+.dsh-prompt-refiner__popoverRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -132,27 +132,27 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   padding: 6px 0;
   flex-wrap: wrap;
 }
-.dsh-prompt-optimizer__popoverField {
+.dsh-prompt-refiner__popoverField {
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
-.dsh-prompt-optimizer__popoverFieldTitle {
+.dsh-prompt-refiner__popoverFieldTitle {
   color: var(--dsw-alias-label-primary, #111);
 }
-.dsh-prompt-optimizer__popoverFieldHint {
+.dsh-prompt-refiner__popoverFieldHint {
   color: var(--dsw-alias-label-tertiary, #777);
   font-size: 11px;
   line-height: 16px;
 }
-.dsh-prompt-optimizer__seg {
+.dsh-prompt-refiner__seg {
   display: inline-flex;
   border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 14%));
   border-radius: 8px;
   overflow: hidden;
   flex: none;
 }
-.dsh-prompt-optimizer__seg button {
+.dsh-prompt-refiner__seg button {
   box-sizing: border-box;
   border: none;
   background: transparent;
@@ -164,18 +164,18 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   cursor: pointer;
   transition: background-color 120ms ease, color 120ms ease;
 }
-.dsh-prompt-optimizer__seg button + button {
+.dsh-prompt-refiner__seg button + button {
   border-left: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 14%));
 }
-.dsh-prompt-optimizer__seg button:hover:not([aria-pressed="true"]) {
+.dsh-prompt-refiner__seg button:hover:not([aria-pressed="true"]) {
   background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 5%));
   color: var(--dsw-alias-label-primary, #111);
 }
-.dsh-prompt-optimizer__seg button[aria-pressed="true"] {
+.dsh-prompt-refiner__seg button[aria-pressed="true"] {
   background: var(--dsw-alias-brand-primary, #4f6ef7);
   color: #fff;
 }
-.dsh-prompt-optimizer__switch {
+.dsh-prompt-refiner__switch {
   display: inline-flex;
   align-items: center;
   flex: none;
@@ -184,7 +184,7 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   padding: 0;
   cursor: pointer;
 }
-.dsh-prompt-optimizer__switchTrack {
+.dsh-prompt-refiner__switchTrack {
   position: relative;
   width: 30px;
   height: 16px;
@@ -192,7 +192,7 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   background: var(--dsw-alias-border-l2, rgb(0 0 0 / 20%));
   transition: background-color 120ms ease;
 }
-.dsh-prompt-optimizer__switchThumb {
+.dsh-prompt-refiner__switchThumb {
   position: absolute;
   top: 2px;
   left: 2px;
@@ -203,18 +203,18 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   box-shadow: 0 1px 2px rgb(0 0 0 / 25%);
   transition: transform 120ms ease;
 }
-.dsh-prompt-optimizer__switch[aria-checked="true"] .dsh-prompt-optimizer__switchTrack {
+.dsh-prompt-refiner__switch[aria-checked="true"] .dsh-prompt-refiner__switchTrack {
   background: var(--dsw-alias-brand-primary, #4f6ef7);
 }
-.dsh-prompt-optimizer__switch[aria-checked="true"] .dsh-prompt-optimizer__switchThumb {
+.dsh-prompt-refiner__switch[aria-checked="true"] .dsh-prompt-refiner__switchThumb {
   transform: translateX(14px);
 }
-.dsh-prompt-optimizer__popoverDivider {
+.dsh-prompt-refiner__popoverDivider {
   height: 1px;
   background: var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
   margin: 4px 0;
 }
-.dsh-prompt-optimizer__rowButton {
+.dsh-prompt-refiner__rowButton {
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -231,23 +231,23 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   cursor: pointer;
   border-radius: 6px;
 }
-.dsh-prompt-optimizer__rowButton:hover:not(:disabled) {
+.dsh-prompt-refiner__rowButton:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 5%));
   color: var(--dsw-alias-label-primary, #111);
 }
-.dsh-prompt-optimizer__rowButtonMeta {
+.dsh-prompt-refiner__rowButtonMeta {
   margin-left: auto;
   color: var(--dsw-alias-label-tertiary, #777);
   font-size: 11px;
   line-height: 16px;
 }
-.dsh-prompt-optimizer__popoverFooter {
+.dsh-prompt-refiner__popoverFooter {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   padding-top: 2px;
 }
-.dsh-prompt-optimizer__reset {
+.dsh-prompt-refiner__reset {
   border: none;
   background: transparent;
   color: var(--dsw-alias-label-tertiary, #777);
@@ -257,13 +257,13 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   padding: 2px 2px;
   cursor: pointer;
 }
-.dsh-prompt-optimizer__reset:hover {
+.dsh-prompt-refiner__reset:hover {
   color: var(--dsw-alias-label-primary, #111);
   text-decoration: underline;
 }
 
 /* ---- toast ---- */
-.dsh-prompt-optimizer__toast {
+.dsh-prompt-refiner__toast {
   box-sizing: border-box;
   position: fixed;
   z-index: 9995;
@@ -278,7 +278,7 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   line-height: 18px;
   animation: dsh-po-toast-in 150ms ease;
 }
-.dsh-prompt-optimizer__toast--error {
+.dsh-prompt-refiner__toast--error {
   border-color: var(--dsw-alias-state-error-primary, #e43c3c);
   color: var(--dsw-alias-state-error-primary, #e43c3c);
 }
@@ -288,7 +288,7 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
 }
 
 /* ---- preview dialog (unchanged look) ---- */
-.dsh-prompt-optimizer__overlay {
+.dsh-prompt-refiner__overlay {
   position: fixed;
   z-index: 10000;
   inset: 0;
@@ -298,7 +298,7 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   padding: 24px;
   background: rgb(0 0 0 / 45%);
 }
-.dsh-prompt-optimizer__dialog {
+.dsh-prompt-refiner__dialog {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -311,31 +311,31 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   color: var(--dsw-alias-label-primary, #111);
   box-shadow: 0 18px 60px rgb(0 0 0 / 28%);
 }
-.dsh-prompt-optimizer__dialogTitle {
+.dsh-prompt-refiner__dialogTitle {
   margin: 0 0 12px;
   font-size: 15px;
   font-weight: 600;
   line-height: 22px;
 }
-.dsh-prompt-optimizer__columns {
+.dsh-prompt-refiner__columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   min-height: 0;
   overflow: auto;
 }
-.dsh-prompt-optimizer__panel {
+.dsh-prompt-refiner__panel {
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-width: 0;
 }
-.dsh-prompt-optimizer__panelLabel {
+.dsh-prompt-refiner__panelLabel {
   color: var(--dsw-alias-label-tertiary, #777);
   font-size: 12px;
   line-height: 18px;
 }
-.dsh-prompt-optimizer__textarea {
+.dsh-prompt-refiner__textarea {
   box-sizing: border-box;
   width: 100%;
   min-height: 240px;
@@ -350,17 +350,17 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   font-size: 13px;
   line-height: 20px;
 }
-.dsh-prompt-optimizer__textarea:focus {
+.dsh-prompt-refiner__textarea:focus {
   border-color: var(--dsw-alias-brand-primary, #4f6ef7);
 }
-.dsh-prompt-optimizer__footer {
+.dsh-prompt-refiner__footer {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 12px;
 }
-.dsh-prompt-optimizer__button {
+.dsh-prompt-refiner__button {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
@@ -378,30 +378,30 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   cursor: pointer;
   transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
-.dsh-prompt-optimizer__button:hover:not(:disabled) {
+.dsh-prompt-refiner__button:hover:not(:disabled) {
   border-color: var(--dsw-alias-brand-primary, #4f6ef7);
   background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 5%));
   color: var(--dsw-alias-label-primary, #111);
 }
-.dsh-prompt-optimizer__button:disabled {
+.dsh-prompt-refiner__button:disabled {
   opacity: 0.45;
   cursor: default;
 }
-.dsh-prompt-optimizer__button--primary {
+.dsh-prompt-refiner__button--primary {
   border-color: var(--dsw-alias-button-primary-fill, #4f6ef7);
   background: var(--dsw-alias-button-primary-fill, #4f6ef7);
   color: var(--dsw-alias-label-primary-inverted, #fff);
 }
-.dsh-prompt-optimizer__button--primary:hover:not(:disabled) {
+.dsh-prompt-refiner__button--primary:hover:not(:disabled) {
   border-color: var(--dsw-alias-button-primary-hover, #3b5de7);
   background: var(--dsw-alias-button-primary-hover, #3b5de7);
   color: var(--dsw-alias-label-primary-inverted, #fff);
 }
 @media (max-width: 640px) {
-  .dsh-prompt-optimizer__columns {
+  .dsh-prompt-refiner__columns {
     grid-template-columns: 1fr;
   }
-  .dsh-prompt-optimizer__textarea {
+  .dsh-prompt-refiner__textarea {
     min-height: 140px;
   }
 }
@@ -450,7 +450,7 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   }
 
   function backupKey(sessionId) {
-    return "dsh-prompt-optimizer:backup:" + (sessionId || "default");
+    return "dsh-prompt-refiner:backup:" + (sessionId || "default");
   }
 
   function readBackup(sessionId) {
@@ -551,7 +551,7 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
   function CaretIcon() {
     return React.createElement(
       "span",
-      { className: "dsh-prompt-optimizer__caretIcon", "aria-hidden": "true" },
+      { className: "dsh-prompt-refiner__caretIcon", "aria-hidden": "true" },
       React.createElement(
         "svg",
         {
@@ -815,7 +815,7 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
     function renderSeg(options, labels, value, onChange, ariaLabel) {
       return React.createElement(
         "div",
-        { className: "dsh-prompt-optimizer__seg", role: "group", "aria-label": ariaLabel },
+        { className: "dsh-prompt-refiner__seg", role: "group", "aria-label": ariaLabel },
         options.map(function (option) {
           return React.createElement(
             "button",
@@ -853,23 +853,23 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
       return React.createElement(
         "div",
         {
-          className: "dsh-prompt-optimizer__popover",
+          className: "dsh-prompt-refiner__popover",
           ref: popoverRef,
           role: "dialog",
           "aria-label": zh ? "优化设置" : "Optimizer settings",
           style: popoverStyle || undefined,
         },
-        React.createElement("p", { className: "dsh-prompt-optimizer__popoverTitle" },
+        React.createElement("p", { className: "dsh-prompt-refiner__popoverTitle" },
           zh ? "优化设置" : "Optimizer settings"),
         React.createElement(
           "div",
-          { className: "dsh-prompt-optimizer__popoverRow" },
+          { className: "dsh-prompt-refiner__popoverRow" },
           React.createElement(
             "div",
-            { className: "dsh-prompt-optimizer__popoverField" },
-            React.createElement("span", { className: "dsh-prompt-optimizer__popoverFieldTitle" },
+            { className: "dsh-prompt-refiner__popoverField" },
+            React.createElement("span", { className: "dsh-prompt-refiner__popoverFieldTitle" },
               zh ? "优化风格" : "Style"),
-            React.createElement("span", { className: "dsh-prompt-optimizer__popoverFieldHint" },
+            React.createElement("span", { className: "dsh-prompt-refiner__popoverFieldHint" },
               zh ? "默认“标准”，直接点 ✨ 即可" : "Default: standard — just click ✨")
           ),
           renderSeg(STYLE_OPTIONS, styleLabels, settings.style, function (value) {
@@ -878,20 +878,20 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
         ),
         React.createElement(
           "div",
-          { className: "dsh-prompt-optimizer__popoverRow" },
+          { className: "dsh-prompt-refiner__popoverRow" },
           React.createElement(
             "div",
-            { className: "dsh-prompt-optimizer__popoverField" },
-            React.createElement("span", { className: "dsh-prompt-optimizer__popoverFieldTitle" },
+            { className: "dsh-prompt-refiner__popoverField" },
+            React.createElement("span", { className: "dsh-prompt-refiner__popoverFieldTitle" },
               zh ? "上下文" : "Context"),
-            React.createElement("span", { className: "dsh-prompt-optimizer__popoverFieldHint" },
+            React.createElement("span", { className: "dsh-prompt-refiner__popoverFieldHint" },
               zh ? "结合最近对话理解草稿" : "Use recent conversation to understand the draft")
           ),
           React.createElement(
             "button",
             {
               type: "button",
-              className: "dsh-prompt-optimizer__switch",
+              className: "dsh-prompt-refiner__switch",
               role: "switch",
               "aria-checked": settings.includeContext ? "true" : "false",
               "aria-label": zh ? "结合最近对话理解草稿" : "Use recent conversation as context",
@@ -899,20 +899,20 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
             },
             React.createElement(
               "span",
-              { className: "dsh-prompt-optimizer__switchTrack" },
-              React.createElement("span", { className: "dsh-prompt-optimizer__switchThumb" })
+              { className: "dsh-prompt-refiner__switchTrack" },
+              React.createElement("span", { className: "dsh-prompt-refiner__switchThumb" })
             )
           )
         ),
         React.createElement(
           "div",
-          { className: "dsh-prompt-optimizer__popoverRow" },
+          { className: "dsh-prompt-refiner__popoverRow" },
           React.createElement(
             "div",
-            { className: "dsh-prompt-optimizer__popoverField" },
-            React.createElement("span", { className: "dsh-prompt-optimizer__popoverFieldTitle" },
+            { className: "dsh-prompt-refiner__popoverField" },
+            React.createElement("span", { className: "dsh-prompt-refiner__popoverFieldTitle" },
               zh ? "应用方式" : "Apply"),
-            React.createElement("span", { className: "dsh-prompt-optimizer__popoverFieldHint" },
+            React.createElement("span", { className: "dsh-prompt-refiner__popoverFieldHint" },
               zh ? "直接应用后可从 ▾ 一键还原原文" : "Direct apply can be undone from ▾")
           ),
           renderSeg(APPLY_OPTIONS, applyLabels, settings.applyMode, function (value) {
@@ -921,12 +921,12 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
         ),
         backup && !preview
           ? React.createElement(React.Fragment, null,
-              React.createElement("div", { className: "dsh-prompt-optimizer__popoverDivider" }),
+              React.createElement("div", { className: "dsh-prompt-refiner__popoverDivider" }),
               React.createElement(
                 "button",
                 {
                   type: "button",
-                  className: "dsh-prompt-optimizer__rowButton",
+                  className: "dsh-prompt-refiner__rowButton",
                   onClick: restoreOriginal,
                   title: zh ? "还原到上次优化前的原文" : "Restore the text from before the last optimization",
                   "aria-label": zh ? "还原原文" : "Restore original",
@@ -934,16 +934,16 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
                 React.createElement("span", null, zh ? "↩ 还原原文" : "↩ Restore original"),
                 restoreTime === ""
                   ? null
-                  : React.createElement("span", { className: "dsh-prompt-optimizer__rowButtonMeta" }, restoreTime)
+                  : React.createElement("span", { className: "dsh-prompt-refiner__rowButtonMeta" }, restoreTime)
               )
             )
           : null,
         React.createElement(
           "div",
-          { className: "dsh-prompt-optimizer__popoverFooter" },
+          { className: "dsh-prompt-refiner__popoverFooter" },
           React.createElement(
             "button",
-            { type: "button", className: "dsh-prompt-optimizer__reset", onClick: resetSettings },
+            { type: "button", className: "dsh-prompt-refiner__reset", onClick: resetSettings },
             zh ? "恢复默认设置" : "Reset to defaults"
           )
         )
@@ -955,8 +955,8 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
       return React.createElement(
         "div",
         {
-          className: "dsh-prompt-optimizer__toast"
-            + (toast.kind === "error" ? " dsh-prompt-optimizer__toast--error" : ""),
+          className: "dsh-prompt-refiner__toast"
+            + (toast.kind === "error" ? " dsh-prompt-refiner__toast--error" : ""),
           role: "status",
           style: toast.style,
         },
@@ -969,12 +969,12 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
       null,
       React.createElement(
         "div",
-        { className: "dsh-prompt-optimizer", "data-plugin": PACKAGE_ID, ref: groupRef },
+        { className: "dsh-prompt-refiner", "data-plugin": PACKAGE_ID, ref: groupRef },
         React.createElement(
           "button",
           {
             type: "button",
-            className: "dsh-prompt-optimizer__main",
+            className: "dsh-prompt-refiner__main",
             "data-plugin": PACKAGE_ID,
             "data-busy": busy ? "true" : undefined,
             disabled: busy || !canOptimize,
@@ -983,7 +983,7 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
             "aria-label": zh ? "优化提示词" : "Optimize prompt",
           },
           busy
-            ? React.createElement("span", { className: "dsh-prompt-optimizer__spinner", "aria-hidden": "true" })
+            ? React.createElement("span", { className: "dsh-prompt-refiner__spinner", "aria-hidden": "true" })
             : React.createElement(SparklesIcon, null)
         ),
         React.createElement(
@@ -991,7 +991,7 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
           {
             type: "button",
             ref: caretRef,
-            className: "dsh-prompt-optimizer__caret",
+            className: "dsh-prompt-refiner__caret",
             "aria-label": zh ? "优化设置（风格 / 上下文 / 还原）" : "Optimizer settings",
             "aria-expanded": popoverOpen ? "true" : "false",
             "aria-haspopup": "dialog",
@@ -1002,7 +1002,7 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
           React.createElement(CaretIcon, null)
         ),
         backup && !preview
-          ? React.createElement("span", { className: "dsh-prompt-optimizer__dot", "aria-hidden": "true" })
+          ? React.createElement("span", { className: "dsh-prompt-refiner__dot", "aria-hidden": "true" })
           : null
       ),
       popoverOpen
@@ -1012,45 +1012,45 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
           ? ReactDOM.createPortal(
         React.createElement(
             "div",
-            { className: "dsh-prompt-optimizer__overlay", role: "presentation" },
+            { className: "dsh-prompt-refiner__overlay", role: "presentation" },
             React.createElement(
               "div",
               {
-                className: "dsh-prompt-optimizer__dialog",
+                className: "dsh-prompt-refiner__dialog",
                 role: "dialog",
                 "aria-modal": "true",
                 "aria-label": zh ? "优化结果预览" : "Optimization preview",
               },
-              React.createElement("h3", { className: "dsh-prompt-optimizer__dialogTitle" }, zh ? "优化结果预览" : "Optimization preview"),
+              React.createElement("h3", { className: "dsh-prompt-refiner__dialogTitle" }, zh ? "优化结果预览" : "Optimization preview"),
               React.createElement(
                 "div",
-                { className: "dsh-prompt-optimizer__columns" },
+                { className: "dsh-prompt-refiner__columns" },
                 React.createElement(
                   "div",
-                  { className: "dsh-prompt-optimizer__panel" },
-                  React.createElement("span", { className: "dsh-prompt-optimizer__panelLabel" }, zh ? "原文" : "Original"),
-                  React.createElement("textarea", { className: "dsh-prompt-optimizer__textarea", readOnly: true, value: preview.original })
+                  { className: "dsh-prompt-refiner__panel" },
+                  React.createElement("span", { className: "dsh-prompt-refiner__panelLabel" }, zh ? "原文" : "Original"),
+                  React.createElement("textarea", { className: "dsh-prompt-refiner__textarea", readOnly: true, value: preview.original })
                 ),
                 React.createElement(
                   "div",
-                  { className: "dsh-prompt-optimizer__panel" },
-                  React.createElement("span", { className: "dsh-prompt-optimizer__panelLabel" }, zh ? "优化后" : "Optimized"),
-                  React.createElement("textarea", { className: "dsh-prompt-optimizer__textarea", readOnly: true, value: preview.optimized })
+                  { className: "dsh-prompt-refiner__panel" },
+                  React.createElement("span", { className: "dsh-prompt-refiner__panelLabel" }, zh ? "优化后" : "Optimized"),
+                  React.createElement("textarea", { className: "dsh-prompt-refiner__textarea", readOnly: true, value: preview.optimized })
                 )
               ),
               React.createElement(
                 "div",
-                { className: "dsh-prompt-optimizer__footer" },
+                { className: "dsh-prompt-refiner__footer" },
                 React.createElement(
                   "button",
-                  { type: "button", className: "dsh-prompt-optimizer__button", onClick: cancelPreview },
+                  { type: "button", className: "dsh-prompt-refiner__button", onClick: cancelPreview },
                   zh ? "取消" : "Cancel"
                 ),
                 React.createElement(
                   "button",
                   {
                     type: "button",
-                    className: "dsh-prompt-optimizer__button dsh-prompt-optimizer__button--primary",
+                    className: "dsh-prompt-refiner__button dsh-prompt-refiner__button--primary",
                     onClick: applyOptimized,
                   },
                   zh ? "使用优化结果" : "Use optimized"
@@ -1074,7 +1074,7 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
         var style = document.getElementById(STYLE_ID);
         if (style) style.remove();
       };
-    }, "dsh-prompt-optimizer: styles");
+    }, "dsh-prompt-refiner: styles");
 
     ctx.slots.inject("conversation.input.right", function () {
       return ctx.slots.register(
@@ -1086,7 +1086,7 @@ window.__ModuleLoader__.load({ id: "dsh-prompt-optimizer", factory: (require) =>
           inject: function (sessionId) {
             var directory = ctx.modelDirectories.directoryFor(sessionId);
             if (!directory) {
-              throw new Error("dsh-prompt-optimizer: model directory is unavailable");
+              throw new Error("dsh-prompt-refiner: model directory is unavailable");
             }
             return { directory: directory, sessionId: sessionId };
           },

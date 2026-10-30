@@ -1,5 +1,5 @@
 /**
- * Build step for dsh-prompt-optimizer.
+ * Build step for dsh-prompt-refiner.
  *
  * Both halves are hand-written ESM that Node and the browser loader can consume
  * as-is, so "building" is a deliberate copy from source to the published
