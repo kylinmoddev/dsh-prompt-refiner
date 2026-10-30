@@ -12,6 +12,7 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
   var DEFAULT_SETTINGS = {
     style: "standard",
     includeContext: false,
+    multiCandidate: false,
     applyMode: "direct", // "direct" | "preview"
   };
 
@@ -494,6 +495,7 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
     if (!raw || typeof raw !== "object") return merged;
     if (STYLE_OPTIONS.indexOf(raw.style) !== -1) merged.style = raw.style;
     if (typeof raw.includeContext === "boolean") merged.includeContext = raw.includeContext;
+    if (typeof raw.multiCandidate === "boolean") merged.multiCandidate = raw.multiCandidate;
     if (APPLY_OPTIONS.indexOf(raw.applyMode) !== -1) merged.applyMode = raw.applyMode;
     return merged;
   }
@@ -718,6 +720,7 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
           text: text,
           style: settings.style,
           includeContext: settings.includeContext,
+          ...(settings.multiCandidate ? { multiCandidate: true } : {}),
           ...(current.reasoningEffort ? { reasoningEffort: current.reasoningEffort } : {}),
           ...(settings.includeContext && sessionId ? { sessionId: sessionId } : {}),
         }),
@@ -896,6 +899,34 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
               "aria-checked": settings.includeContext ? "true" : "false",
               "aria-label": zh ? "结合最近对话理解草稿" : "Use recent conversation as context",
               onClick: function () { patchSettings({ includeContext: !settings.includeContext }); },
+            },
+            React.createElement(
+              "span",
+              { className: "dsh-prompt-refiner__switchTrack" },
+              React.createElement("span", { className: "dsh-prompt-refiner__switchThumb" })
+            )
+          )
+        ),
+        React.createElement(
+          "div",
+          { className: "dsh-prompt-refiner__popoverRow" },
+          React.createElement(
+            "div",
+            { className: "dsh-prompt-refiner__popoverField" },
+            React.createElement("span", { className: "dsh-prompt-refiner__popoverFieldTitle" },
+              zh ? "多候选" : "Multi-candidate"),
+            React.createElement("span", { className: "dsh-prompt-refiner__popoverFieldHint" },
+              zh ? "开启后当前档位生成两个候选择优，更优但更慢" : "Generate two candidates and keep the better one — better but slower")
+          ),
+          React.createElement(
+            "button",
+            {
+              type: "button",
+              className: "dsh-prompt-refiner__switch",
+              role: "switch",
+              "aria-checked": settings.multiCandidate ? "true" : "false",
+              "aria-label": zh ? "开启后当前档位生成两个候选择优，更优但更慢" : "Generate two candidates and keep the better one",
+              onClick: function () { patchSettings({ multiCandidate: !settings.multiCandidate }); },
             },
             React.createElement(
               "span",
