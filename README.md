@@ -1,6 +1,6 @@
 # dsh-prompt-refiner（增强版）
 
-> 本仓库是 [kee0012/dsh-prompt-refiner](https://github.com/kee0012/dsh-prompt-refiner) 的增强分支，遵循原项目 MIT 许可。增强内容：可核查标准展开、`{{变量}}` 占位符保护、受众/背景显式落地、【placeholder】规范、上下文使用纪律、输出契约修复——只改服务端提示词措辞，UI 与交互保持原样。
+> 本仓库是 [kee0012/dsh-prompt-optimizer](https://github.com/kee0012/dsh-prompt-optimizer) 的增强分支，遵循原项目 MIT 许可。增强内容：可核查标准展开、`{{变量}}` 占位符保护、受众/背景显式落地、【placeholder】规范、上下文使用纪律、输出契约修复——只改服务端提示词措辞，UI 与交互保持原样。
 
 DSH 提示词优化插件：在输入框工具栏放一个 ✨ 按钮，用当前会话所选模型优化草稿并直接写回。
 
@@ -78,7 +78,7 @@ dsh-prompt-refiner/
 ## 反馈与贡献
 
 - 本增强分支问题反馈：<https://github.com/kylinmoddev/dsh-prompt-refiner/issues>
-- 原版插件与上游问题：<https://github.com/kee0012/dsh-prompt-refiner/issues>
+- 原版插件与上游问题：<https://github.com/kee0012/dsh-prompt-optimizer/issues>
 - 欢迎提交 Issue 与 Pull Request。
 
 ### 从源码构建
