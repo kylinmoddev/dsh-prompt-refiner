@@ -1,4 +1,6 @@
-# dsh-prompt-optimizer
+# dsh-prompt-optimizer（增强版）
+
+> 本仓库是 [kee0012/dsh-prompt-optimizer](https://github.com/kee0012/dsh-prompt-optimizer) 的增强分支，遵循原项目 MIT 许可。增强内容：可核查标准展开、`{{变量}}` 占位符保护、受众/背景显式落地、【placeholder】规范、上下文使用纪律、输出契约修复——只改服务端提示词措辞，UI 与交互保持原样。
 
 DSH 提示词优化插件：在输入框工具栏放一个 ✨ 按钮，用当前会话所选模型优化草稿并直接写回。
 
@@ -22,11 +24,11 @@ DSH 提示词优化插件：在输入框工具栏放一个 ✨ 按钮，用当�
 
 ## 安装
 
-插件托管在 GitHub（`kee0012/dsh-prompt-optimizer`，未发布到 npm），DSH 支持以 git 依赖方式直接安装：
+插件托管在 GitHub（`kylinmoddev/dsh-prompt-optimizer`，未发布到 npm），DSH 支持以 git 依赖方式直接安装：
 
 ```sh
 # 从 GitHub 安装（推荐，日常使用；拉取默认分支最新提交）
-dsh plugin --profile desktop add github:kee0012/dsh-prompt-optimizer
+dsh plugin --profile desktop add github:kylinmoddev/dsh-prompt-optimizer
 ```
 
 > 安装后需要**重启 DSH**，新的服务端代码与 client bundle 才会生效。
@@ -75,7 +77,8 @@ dsh-prompt-optimizer/
 
 ## 反馈与贡献
 
-- 问题反馈、功能建议：<https://github.com/kee0012/dsh-prompt-optimizer/issues>
+- 本增强分支问题反馈：<https://github.com/kylinmoddev/dsh-prompt-optimizer/issues>
+- 原版插件与上游问题：<https://github.com/kee0012/dsh-prompt-optimizer/issues>
 - 欢迎提交 Issue 与 Pull Request。
 
 ### 从源码构建
