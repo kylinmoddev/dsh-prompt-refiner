@@ -1,6 +1,6 @@
 {
   "name": "dsh-prompt-optimizer",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "DSH 提示词优化插件：在输入框底部（模型选择左侧）一键调用当前选中的大模型优化草稿。",
   "type": "module",
   "license": "MIT",
