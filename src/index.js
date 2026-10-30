@@ -68,6 +68,7 @@ Rules for the rewritten prompt:
 - If the draft is not really a prompt (a bare question or chit-chat), treat it as raw material: rewrite it into the prompt the user evidently needs, rather than keeping it verbatim.
 - Use structure (short paragraphs, numbered steps, clear sections) only when it improves clarity.
 - Do not invent facts, goals, constraints, or data the user did not express or clearly imply.
+- Make the implied audience and background explicit in the rewrite when they shape how the prompt should be answered; when you cannot infer them with confidence, surface them as a 【placeholder】 rather than guessing - a stated assumption the user can correct beats a silent one.
 - If the original is already excellent, make only a light polish.
 
 The final output must be a prompt that a person could paste directly and get a better result than the original.
@@ -95,6 +96,7 @@ Optimization style: detailed.
 - End with a short gap list under a 【待补充】 heading, mirroring the inline 【placeholder】 marks; it is part of the output by contract.
 - Choose the structure that fits the content (sectioned role-card style, or a flat task-brief with numbered requirements); do not force one fixed template.
 - Explicitly cover context, steps, and quality criteria as well.
+- Where the audience or background materially changes the expected answer, give them their own lines as well.
 `,
 };
 
