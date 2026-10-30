@@ -43,7 +43,11 @@ dsh plugin --profile desktop add github:kylinmoddev/dsh-prompt-refiner
 
 ## 兼容性
 
-桌面版与 `dsh web` 均可用。
+- **前端**：桌面版与 `dsh web` 均可用（服务端路由对桌面 `dsh-app://app` 的 Origin 缺失场景做了显式放行）。
+- **DSH 版本**：`>= 0.1.7-0`（依赖 `ctx.llm.resolveModelInfo` 做 reasoningEffort 能力先验，该 API 自 dsh-llm 0.1.7-0 起可用；更早版本上 effort 先验会静默跳过，不影响其余功能）。
+- **Node**：`>= 18`（仅构建/测试脚本需要；运行时随 DSH 进程）。
+- **与原版并存**：本插件包名、插件 id、路由前缀（`/dsh-prompt-refiner/*`）、样式 id 与设置存储键均独立，可与 `kee0012/dsh-prompt-optimizer` 同时安装，靠启用开关切换；服务端路由与快捷设置互不干扰。
+- **不支持**：图片输入（附件字节取不到，遇到会明确报错而不是静默丢弃）。
 
 ## 实现方式
 

@@ -58,5 +58,9 @@
     "gates": "node scripts/gates/run.mjs",
     "test": "node scripts/tests/reasoning-effort.test.mjs",
     "check": "node scripts/build.mjs && node --check lib/index.js && node --check lib/client.js && node scripts/gates/run.mjs && node scripts/tests/reasoning-effort.test.mjs"
+  },
+  "engines": {
+    "dsh": ">=0.1.7-0",
+    "node": ">=18"
   }
 }

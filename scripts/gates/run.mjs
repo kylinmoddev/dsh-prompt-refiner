@@ -54,6 +54,11 @@ gate('exports["./package.json"] is exposed', manifest.exports?.['./package.json'
 gate('exports["./cordis.patch.yml"] is exposed', manifest.exports?.['./cordis.patch.yml'] === './cordis.patch.yml');
 gate('dsh.bundle.patch is declared', typeof manifest.dsh?.bundle?.patch === 'string', manifest.dsh?.bundle?.patch);
 gate('dsh.client.platform is "web"', manifest.dsh?.client?.platform === 'web', manifest.dsh?.client?.platform);
+gate(
+  'engines declares dsh and node',
+  typeof manifest.engines?.dsh === 'string' && typeof manifest.engines?.node === 'string',
+  `${manifest.engines?.dsh ?? ''} / ${manifest.engines?.node ?? ''}`,
+);
 
 const forbidden = ['dependencies', 'peerDependencies', 'optionalDependencies'];
 const declaredCore = forbidden.flatMap((field) =>
