@@ -257,6 +257,84 @@ await behavioural('a timed-out call actually aborts the provider stream signal',
   return `200 + original + llm-error; provider signal aborted after ~50ms (case ${elapsed}ms)`;
 });
 
+await behavioural('client timeout budget is generous and mode-aware', async () => {
+  const clientText = readFileSync(CLIENT_SOURCE, 'utf8');
+  const read = (name) => {
+    const m = clientText.match(new RegExp('var ' + name + '\\s*=\\s*(\\d+)'));
+    return m === null ? null : Number(m[1]);
+  };
+  const single = read('REQUEST_TIMEOUT_MS');
+  const multi = read('MULTI_CANDIDATE_TIMEOUT_MS');
+  const slow = read('SLOW_REQUEST_NOTICE_MS');
+  expect(single !== null && single >= 120000, `single-candidate timeout is ${single}ms — too tight for long drafts (was 90000)`);
+  expect(multi !== null && multi >= 240000, `multi-candidate timeout is ${multi}ms — two rewrites + a judge need far more than the single budget`);
+  expect(multi > single, 'the multi-candidate budget must exceed the single-candidate budget');
+  expect(slow !== null && slow <= single, `the slow notice (${slow}ms) must fire before the hard ceiling (${single}ms)`);
+  return `single ${single}ms, multi ${multi}ms, notice ${slow}ms (notice only, no abort)`;
+});
+
+await behavioural('a client disconnect cancels the provider call (code CLIENT_CLOSED)', async () => {
+  const fresh = await importWithTimeoutEnv(75000);
+  let streamSignal = null;
+  let resolveStarted;
+  const startedCall = new Promise((resolve) => {
+    resolveStarted = resolve;
+  });
+  let resolveAbort;
+  const abortObserved = new Promise((resolve) => {
+    resolveAbort = resolve;
+  });
+  const hanging = (options) => {
+    streamSignal = options.signal;
+    if (streamSignal.aborted) resolveAbort(true);
+    else streamSignal.addEventListener('abort', () => resolveAbort(true), { once: true });
+    resolveStarted(true);
+    return (async function* () {
+      await new Promise(() => {});
+    })();
+  };
+  const host = makeHost([hanging]);
+  fresh.apply(host.ctx);
+
+  const listeners = new Map();
+  const request = {
+    method: 'POST',
+    headers: {},
+    on(event, fn) {
+      listeners.set(event, fn);
+    },
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.from(JSON.stringify({ provider: 'test', model: 'test', text: DRAFT }));
+    },
+  };
+  let status = 0;
+  let payload = null;
+  const response = {
+    writeHead(code) {
+      status = code;
+    },
+    end(text) {
+      payload = JSON.parse(text);
+    },
+  };
+  const handlerDone = host.routes.get(ROUTE)(request, response);
+
+  await Promise.race([startedCall, new Promise((resolve) => setTimeout(() => resolve(false), 1000))]);
+  expect(streamSignal !== null, 'the provider was never called');
+  const close = listeners.get('close');
+  expect(typeof close === 'function', 'the handler never subscribed to the request close event');
+  close();
+
+  const aborted = await Promise.race([
+    abortObserved,
+    new Promise((resolve) => setTimeout(() => resolve(false), 1000)),
+  ]);
+  expect(aborted === true, 'closing the request did not abort the provider signal — the call keeps burning quota');
+  await Promise.race([handlerDone, new Promise((resolve) => setTimeout(() => resolve(false), 1000))]);
+  expect(payload?.fallback === 'llm-error', `expected the llm-error fallback, got ${JSON.stringify(payload)}`);
+  return `close event aborted the provider signal within 1s; response ${status} + fallback llm-error`;
+});
+
 await behavioural('client still consumes data.fallback and has an identical-result check', async () => {
   const clientText = readFileSync(CLIENT_SOURCE, 'utf8');
   const readsFallback =

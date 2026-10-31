@@ -20,7 +20,16 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
   var STYLE_OPTIONS = ["concise", "standard", "detailed"];
   var APPLY_OPTIONS = ["direct", "preview"];
   var TOAST_MS = 3500;
-  var REQUEST_TIMEOUT_MS = 90000;
+  /**
+   * Timeout budget. A hard 90s ceiling was too strict: one rewrite of a long
+   * draft routinely needs 50-120s, and multi-candidate runs two rewrites plus
+   * a judge. Aborting early wastes work that the server is still doing, so the
+   * ceilings are now generous, and a 90s mark only shows a "still working"
+   * notice instead of throwing the result away.
+   */
+  var REQUEST_TIMEOUT_MS = 180000; // one rewrite
+  var MULTI_CANDIDATE_TIMEOUT_MS = 300000; // two rewrites + judge
+  var SLOW_REQUEST_NOTICE_MS = 90000; // notice only, never aborts
   var LOG_PREFIX = "[dsh-prompt-refiner]";
 
   /* ------------------------------------------------------------------ *
@@ -955,10 +964,27 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
       };
       logInfo("optimize request", debugState.lastRequest);
 
+      var timeoutMs = settings.multiCandidate ? MULTI_CANDIDATE_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
       var controller = typeof AbortController === "function" ? new AbortController() : null;
       var timeoutTimer = setTimeout(function () {
+        logWarn("optimize reached the hard timeout ceiling", {
+          ms: timeoutMs,
+          multiCandidate: settings.multiCandidate === true,
+          chars: text.length,
+        });
         if (controller) controller.abort();
-      }, REQUEST_TIMEOUT_MS);
+      }, timeoutMs);
+      // Soft notice at 90s: no abort, the request keeps running. Long drafts are
+      // normal, and killing them here is what used to throw work away.
+      var slowTimer = setTimeout(function () {
+        logInfo("optimize is slow; still waiting", { ms: SLOW_REQUEST_NOTICE_MS, hardLimitMs: timeoutMs });
+        showToast(
+          zh
+            ? "生成较慢，仍在等待（已 90 秒，最长 " + Math.round(timeoutMs / 1000) + " 秒）"
+            : "Slow but still running (90s, limit " + Math.round(timeoutMs / 1000) + "s)",
+          "ok"
+        );
+      }, SLOW_REQUEST_NOTICE_MS);
 
       fetch(ENDPOINT, {
         method: "POST",
@@ -1059,9 +1085,13 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
         })
         .catch(function (err) {
           if (err && err.name === "AbortError") {
-            logWarn("optimize aborted by client timeout", { ms: REQUEST_TIMEOUT_MS });
-            setError(zh ? "优化超时（90 秒）" : "Timed out (90s)");
-            showToast(zh ? "优化超时（90 秒），已保留原文" : "Timed out; draft kept", "error");
+            var seconds = Math.round(timeoutMs / 1000);
+            logWarn("optimize aborted by client timeout", { ms: timeoutMs, multiCandidate: settings.multiCandidate === true });
+            setError(zh ? "优化超时（" + seconds + " 秒）" : "Timed out (" + seconds + "s)");
+            showToast(
+              zh ? "优化超时（" + seconds + " 秒），已保留原文" : "Timed out (" + seconds + "s); draft kept",
+              "error"
+            );
             return;
           }
           var message = err instanceof Error ? err.message : String(err);
@@ -1071,6 +1101,7 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
         })
         .finally(function () {
           clearTimeout(timeoutTimer);
+          clearTimeout(slowTimer);
           setBusy(false);
         });
     }

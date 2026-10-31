@@ -221,19 +221,40 @@ async function collectText(stream) {
  * a call that finished in time is never aborted, and a rejection that arrives
  * after the race has already been decided is swallowed so it cannot surface as
  * unhandledRejection.
+ *
+ * `externalSignal` (optional) comes from the HTTP request: when the browser
+ * disconnects, the handler aborts it and the LLM call is cancelled too, so an
+ * abandoned request stops burning provider quota.
  */
-function withTimeout(run, ms, code) {
+function withTimeout(run, ms, code, externalSignal) {
   const controller = new AbortController();
   let timer;
+  let rejectGuard;
   const guard = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      controller.abort();
-      reject(Object.assign(new Error('optimize timed out'), { code }));
-    }, ms);
+    rejectGuard = reject;
   });
+  const fail = (error) => {
+    if (!controller.signal.aborted) controller.abort();
+    rejectGuard(error);
+  };
+  timer = setTimeout(() => {
+    fail(Object.assign(new Error('optimize timed out'), { code }));
+  }, ms);
+  // The HTTP handler aborts this when the browser goes away: without it the
+  // server kept generating a result nobody would ever receive.
+  const onExternalAbort = () => {
+    fail(Object.assign(new Error('client closed the request'), { code: 'CLIENT_CLOSED' }));
+  };
+  if (externalSignal) {
+    if (externalSignal.aborted) onExternalAbort();
+    else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+  }
   const attempt = (async () => run(controller.signal))();
   attempt.catch(() => {}); // late rejection after the timeout won the race
-  return Promise.race([attempt, guard]).finally(() => clearTimeout(timer));
+  return Promise.race([attempt, guard]).finally(() => {
+    clearTimeout(timer);
+    if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
+  });
 }
 
 function errorPayload(error) {
@@ -426,6 +447,13 @@ export function apply(ctx) {
         return;
       }
 
+      // If the browser goes away mid-flight, cancel the LLM work instead of
+      // finishing a response nobody will read.
+      const requestAbort = new AbortController();
+      if (typeof request.on === 'function') {
+        request.on('close', () => requestAbort.abort());
+      }
+
       if (!originAllowed(request)) {
         sendJson(response, 403, {
           ok: false,
@@ -438,6 +466,9 @@ export function apply(ctx) {
       try {
         body = await readJsonBody(request);
       } catch (error) {
+        // Malformed JSON is a client error, not an LLM failure: label it so the
+        // response is diagnosable (it used to fall back to LLM_ERROR).
+        if (typeof error?.code !== 'string') error.code = 'INVALID_JSON';
         sendJson(response, 400, errorPayload(error));
         return;
       }
@@ -501,6 +532,7 @@ export function apply(ctx) {
           (signal) => collectText(ctx.llm.stream({ ...options, signal })),
           OPTIMIZE_TIMEOUT_MS,
           'LLM_TIMEOUT',
+          requestAbort.signal,
         );
       };
 
@@ -544,6 +576,7 @@ export function apply(ctx) {
           })),
           OPTIMIZE_TIMEOUT_MS,
           'LLM_TIMEOUT',
+          requestAbort.signal,
         );
         const match = verdict.match(/\{\s*"winner"\s*:\s*"(A|B)"\s*\}/);
         return match === null ? null : match[1];
