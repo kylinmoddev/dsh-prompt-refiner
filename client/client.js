@@ -6,6 +6,7 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
 
   var PACKAGE_ID = "@kylinmoddev/dsh-prompt-refiner";
   var ENDPOINT = "/dsh-prompt-refiner/optimize";
+  var PING_ENDPOINT = "/dsh-prompt-refiner/ping";
   var STYLE_ID = "dsh-prompt-refiner-styles";
   var SETTINGS_KEY = "dsh-prompt-refiner:settings";
 
@@ -19,6 +20,7 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
   var STYLE_OPTIONS = ["concise", "standard", "detailed"];
   var APPLY_OPTIONS = ["direct", "preview"];
   var TOAST_MS = 3500;
+  var REQUEST_TIMEOUT_MS = 90000;
   var LOG_PREFIX = "[dsh-prompt-refiner]";
 
   /* ------------------------------------------------------------------ *
@@ -33,7 +35,7 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
    * ------------------------------------------------------------------ */
   var debugState = {
     plugin: PACKAGE_ID,
-    version: "0.5.1-fix",
+    version: "unknown",
     events: [],
     lastRequest: null,
     lastResponse: null,
@@ -70,6 +72,34 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
       console.warn(LOG_PREFIX, message, detail === undefined ? "" : detail);
     } catch (_) {
       // ignore
+    }
+  }
+
+  /**
+   * Resolve the running plugin version from the host, never from a literal
+   * in this file: a hard-coded version drifted from the manifest every
+   * release. Failure is non-fatal and leaves the state at "unknown".
+   */
+  function resolvePluginVersion() {
+    try {
+      if (typeof fetch !== "function") return;
+      fetch(PING_ENDPOINT, { method: "GET" })
+        .then(function (response) { return response.json(); })
+        .then(function (data) {
+          if (data && typeof data.version === "string" && data.version) {
+            debugState.version = data.version;
+            logInfo("plugin version resolved", { version: data.version });
+          } else {
+            logWarn("plugin version missing from ping response");
+          }
+        })
+        .catch(function (error) {
+          logWarn("plugin version probe failed", {
+            message: String(error && error.message ? error.message : error),
+          });
+        });
+    } catch (_) {
+      // diagnostics stay best-effort; version keeps its "unknown" default
     }
   }
 
@@ -547,23 +577,53 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
    * Best-effort confirmation: the composer state is React-owned, so the
    * only honest check is to re-read the DOM shortly after the write and
    * report a mismatch instead of assuming success.
+   *
+   * The first check can race React's render pass, so retry up to three
+   * times (400/800/1200ms). Any matching read wins; only if all three
+   * reads disagree is the write reported as unconfirmed.
+   *
+   * Returns a cancel function so the component can stop the timers on
+   * unmount instead of touching state after teardown.
    */
   function confirmDraftWritten(expected, onMismatch) {
     var wanted = normalizeDraft(expected);
-    setTimeout(function () {
+    var delays = [400, 800, 1200];
+    var attempt = 0;
+    var timer = null;
+    var cancelled = false;
+
+    function schedule() {
+      timer = setTimeout(check, delays[attempt]);
+    }
+
+    function check() {
+      if (cancelled) return;
+      attempt += 1;
       var actual = normalizeDraft(readComposerDom());
       if (actual === wanted) {
-        logInfo("draft write confirmed", { chars: wanted.length });
+        logInfo("draft write confirmed", { chars: wanted.length, tries: attempt });
         return;
       }
-      logWarn("draft write NOT confirmed (composer still differs)", {
+      if (attempt < delays.length) {
+        schedule();
+        return;
+      }
+      logWarn("draft write NOT confirmed after retries (composer still differs)", {
         expectedChars: wanted.length,
         actualChars: actual.length,
         expectedHead: wanted.slice(0, 40),
         actualHead: actual.slice(0, 40),
+        tries: attempt,
       });
       if (typeof onMismatch === "function") onMismatch();
-    }, 400);
+    }
+
+    schedule();
+
+    return function cancel() {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }
 
   function backupKey(sessionId) {
@@ -728,6 +788,7 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
     var caretRef = React.useRef(null);
     var popoverRef = React.useRef(null);
     var toastTimer = React.useRef(null);
+    var confirmTimer = React.useRef(null);
 
     React.useEffect(function () {
       writeSettings(settings);
@@ -781,6 +842,7 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
     React.useEffect(function () {
       return function () {
         if (toastTimer.current) clearTimeout(toastTimer.current);
+        if (typeof confirmTimer.current === "function") confirmTimer.current();
       };
     }, []);
 
@@ -796,6 +858,12 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
       toastTimer.current = setTimeout(function () {
         setToast(null);
       }, TOAST_MS);
+    }
+
+    /** Single tracked confirmation; the previous probe is cancelled so only one runs. */
+    function confirmWrite(expected, onMismatch) {
+      if (typeof confirmTimer.current === "function") confirmTimer.current();
+      confirmTimer.current = confirmDraftWritten(expected, onMismatch);
     }
 
     function patchSettings(patch) {
@@ -866,10 +934,16 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
       };
       logInfo("optimize request", debugState.lastRequest);
 
+      var controller = typeof AbortController === "function" ? new AbortController() : null;
+      var timeoutTimer = setTimeout(function () {
+        if (controller) controller.abort();
+      }, REQUEST_TIMEOUT_MS);
+
       fetch(ENDPOINT, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(requestBody),
+        signal: controller ? controller.signal : undefined,
       })
         .then(function (response) {
           return response.json().catch(function () {
@@ -886,7 +960,7 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
             fallback: reason || null,
             optimizedChars: optimized.length,
             identicalToDraft: identical,
-            head: optimized.slice(0, 120),
+            head: optimized.slice(0, 60),
           };
           logInfo("optimize response", debugState.lastResponse);
 
@@ -915,6 +989,18 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
             return;
           }
 
+          // Whitespace-only reflow is not an optimization either: writing it
+          // would also save a backup and offer a pointless "restore".
+          if (normalizeDraft(optimized) === normalizeDraft(text) && optimized !== text) {
+            logWarn("result differs only in whitespace", {
+              fallback: reason || null,
+              chars: text.length,
+            });
+            setPreview(null);
+            showToast(zh ? "结果仅有空白/换行差异" : "Only whitespace changed", "error");
+            return;
+          }
+
           if (reason) {
             logWarn("optimize returned a changed result flagged as fallback", { fallback: reason });
           }
@@ -923,8 +1009,14 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
             // Guard: do not clobber text the user typed while the request was in flight.
             var fresh = getComposerDraft(input).trim();
             if (fresh !== text) {
-              logInfo("draft changed during request; opening preview instead of overwriting");
-              setPreview({ original: text, optimized: data.optimized });
+              logWarn("draft changed during request; result discarded", {
+                requestChars: text.length,
+                currentChars: fresh.length,
+              });
+              showToast(
+                zh ? "草稿已变更，本次优化结果已丢弃，请重新优化" : "Draft changed; result discarded — run again",
+                "error"
+              );
               return;
             }
             var wrote = setComposerDraft(inputActions, data.optimized);
@@ -935,7 +1027,7 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
             saveBackup(sessionId, text, data.optimized);
             setBackup(readBackup(sessionId));
             showToast(zh ? "已应用优化结果，点 ▾ 可还原原文" : "Optimized prompt applied; use ▾ to restore", "ok");
-            confirmDraftWritten(data.optimized, function () {
+            confirmWrite(data.optimized, function () {
               showToast(zh ? "结果未写入输入框，请检查草稿" : "Result may not be in the composer; please check", "error");
             });
           } else {
@@ -943,12 +1035,19 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
           }
         })
         .catch(function (err) {
+          if (err && err.name === "AbortError") {
+            logWarn("optimize aborted by client timeout", { ms: REQUEST_TIMEOUT_MS });
+            setError(zh ? "优化超时（90 秒）" : "Timed out (90s)");
+            showToast(zh ? "优化超时（90 秒），已保留原文" : "Timed out; draft kept", "error");
+            return;
+          }
           var message = err instanceof Error ? err.message : String(err);
           logWarn("optimize failed", { message: message });
           setError(message);
           showToast(message, "error");
         })
         .finally(function () {
+          clearTimeout(timeoutTimer);
           setBusy(false);
         });
     }
@@ -981,7 +1080,7 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
       setBackup(readBackup(sessionId));
       setPreview(null);
       showToast(zh ? "已应用优化结果，点 ▾ 可还原原文" : "Optimized prompt applied; use ▾ to restore", "ok");
-      confirmDraftWritten(preview.optimized, function () {
+      confirmWrite(preview.optimized, function () {
         showToast(zh ? "结果未写入输入框，请检查草稿" : "Result may not be in the composer; please check", "error");
       });
     }
@@ -993,6 +1092,20 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
     function restoreOriginal() {
       var saved = readBackup(sessionId);
       if (!saved) return;
+      // A backup only describes the rewrite it belongs to. If the draft has
+      // moved on since then, restoring would silently discard newer edits.
+      var currentText = getComposerDraft(input).trim();
+      if (currentText !== String(saved.optimized || "").trim()) {
+        logWarn("restore blocked: draft diverged from the optimized text", {
+          currentChars: currentText.length,
+          optimizedChars: String(saved.optimized || "").length,
+        });
+        showToast(
+          zh ? "草稿已修改，无法还原到更早的版本" : "Draft changed since the rewrite; cannot restore",
+          "error"
+        );
+        return;
+      }
       if (!setComposerDraft(inputActions, saved.original)) {
         showToast(zh ? "未能写入输入框，原文未还原" : "Could not write into the composer; nothing restored", "error");
         return;
@@ -1319,6 +1432,7 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
   function apply(ctx) {
     ctx.effect(function () {
       installStyles();
+      resolvePluginVersion();
       return function () {
         var style = document.getElementById(STYLE_ID);
         if (style) style.remove();

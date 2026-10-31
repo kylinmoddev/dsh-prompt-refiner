@@ -1,0 +1,212 @@
+/**
+ * Behavioural regression test: the fallback contract of the optimize route.
+ *
+ * The bug this pins down: earlier builds swallowed every LLM failure/empty
+ * result/anchor loss into `{ok:true, optimized:<original>}` and the client then
+ * applied the "result" as if it were a real rewrite — the button looked like it
+ * worked while nothing changed. The route now reports WHY it degraded in
+ * `fallback` and the client surfaces it instead of claiming success.
+ *
+ * Four server-side behaviours are asserted end-to-end against the registered
+ * route (not against a helper): an LLM error, an empty stream, a lost 【...】
+ * anchor, and a dead second candidate in multi-candidate mode. One client-side
+ * static assertion guards the browser half from silently dropping the
+ * `fallback`/`identical` handling again.
+ *
+ * Usage: node scripts/tests/fallback-contract.test.mjs [module-path]
+ * The optional argument points the cases at another artifact (for example
+ * `../../lib/index.js`) so the test can be run against the built bundle.
+ * Exit code 0 = every case passed, 1 = a case failed.
+ */
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const { apply } = await import(process.argv[2] ?? '../../src/index.js');
+
+const ROUTE = '/dsh-prompt-refiner/optimize';
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const CLIENT_SOURCE = resolve(ROOT, 'client/client.js');
+
+// --------------------------------------------------------------- fake host ---
+
+/**
+ * A minimal host: it registers the optimize route and answers each dispatch
+ * with the next stub from `streams` (the last one repeats). A stub may throw
+ * synchronously — that is exactly how a dead provider surfaces from
+ * `ctx.llm.stream` — or return an async chunk generator.
+ */
+function makeHost(streams) {
+  const routes = new Map();
+  const calls = [];
+  let cursor = 0;
+  const ctx = {
+    effect(fn) {
+      fn();
+      return () => {};
+    },
+    webServer: {
+      register({ path, handler }) {
+        routes.set(path, handler);
+        return () => routes.delete(path);
+      },
+    },
+    sessions: { get: () => undefined },
+    llm: {
+      async resolveModelInfo() {
+        return { provider: 'test', id: 'test' };
+      },
+      stream(options) {
+        calls.push(options);
+        const stub = streams[cursor] ?? streams[streams.length - 1];
+        cursor += 1;
+        if (stub === undefined) throw new Error('test host: no stream stub left');
+        return stub(options);
+      },
+    },
+  };
+  return { ctx, routes, calls };
+}
+
+/** A stream that yields `text` (when non-empty) and then a normal finish. */
+function reply(text) {
+  return () => (async function* () {
+    if (text !== '') yield { type: 'text-delta', text };
+    yield { type: 'finish', reason: { kind: 'stop' } };
+  })();
+}
+
+/** A stream that dies before producing anything. */
+function fail(message, code) {
+  return () => {
+    throw Object.assign(new Error(message), code === undefined ? {} : { code });
+  };
+}
+
+async function post(routes, body) {
+  const handler = routes.get(ROUTE);
+  if (handler === undefined) throw new Error(`route ${ROUTE} was never registered`);
+  const request = {
+    method: 'POST',
+    headers: {},
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.from(JSON.stringify(body));
+    },
+  };
+  let status = 0;
+  let payload = null;
+  const response = {
+    writeHead(code) {
+      status = code;
+    },
+    end(text) {
+      payload = JSON.parse(text);
+    },
+  };
+  await handler(request, response);
+  return { status, payload };
+}
+
+// ----------------------------------------------------------------- fixtures ---
+
+/** The draft always carries an anchor the rewrite is not allowed to lose. */
+const DRAFT = '请把这段产品说明改写成给新用户看的引导文案，保持【待补充：目标用户】原样。';
+
+/** A faithful rewrite: keeps the anchor, so it passes the intent check. */
+const FAITHFUL = '请把这段产品说明改写成给新用户看的引导文案，保持【待补充：目标用户】原样，并在结尾附上三步上手清单。';
+
+/** A rewrite that silently dropped the 【...】 anchor. */
+const LOSES_ANCHOR = '请把这段产品说明改写成给新用户看的引导文案，并在结尾附上三步上手清单。';
+
+// -------------------------------------------------------------------- cases ---
+
+const results = [];
+
+async function behavioural(name, fn) {
+  try {
+    const detail = await fn();
+    results.push({ name, ok: true, detail: detail ?? '' });
+  } catch (error) {
+    results.push({ name, ok: false, detail: error.message });
+  }
+}
+
+function expect(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+await behavioural('an LLM error returns 200 with fallback "llm-error" and the original draft', async () => {
+  const host = makeHost([fail('provider exploded', 'PROVIDER_DOWN')]);
+  apply(host.ctx);
+  const { status, payload } = await post(host.routes, { provider: 'test', model: 'test', text: DRAFT });
+  expect(status === 200, `expected 200, got ${status} ${JSON.stringify(payload)}`);
+  expect(payload?.ok === true, `payload not ok: ${JSON.stringify(payload)}`);
+  expect(payload.fallback === 'llm-error', `expected fallback "llm-error", got ${JSON.stringify(payload.fallback)}`);
+  expect(payload.optimized === DRAFT, `optimized must be the original draft verbatim, got ${JSON.stringify(payload.optimized)}`);
+  expect(host.calls.length === 1, `expected one dispatch, got ${host.calls.length}`);
+  return '200 {ok:true, fallback:"llm-error", optimized===draft}';
+});
+
+await behavioural('an empty stream returns fallback "empty-result" and the original draft', async () => {
+  const host = makeHost([reply('')]);
+  apply(host.ctx);
+  const { status, payload } = await post(host.routes, { provider: 'test', model: 'test', text: DRAFT });
+  expect(status === 200, `expected 200, got ${status} ${JSON.stringify(payload)}`);
+  expect(payload?.ok === true, `payload not ok: ${JSON.stringify(payload)}`);
+  expect(payload.fallback === 'empty-result', `expected fallback "empty-result", got ${JSON.stringify(payload.fallback)}`);
+  expect(payload.optimized === DRAFT, `optimized must be the original draft verbatim, got ${JSON.stringify(payload.optimized)}`);
+  return '200 {ok:true, fallback:"empty-result", optimized===draft}';
+});
+
+await behavioural('a rewrite that drops a 【...】 anchor returns fallback "intent-check"', async () => {
+  const host = makeHost([reply(LOSES_ANCHOR)]);
+  apply(host.ctx);
+  const { status, payload } = await post(host.routes, { provider: 'test', model: 'test', text: DRAFT });
+  expect(status === 200, `expected 200, got ${status} ${JSON.stringify(payload)}`);
+  expect(payload?.ok === true, `payload not ok: ${JSON.stringify(payload)}`);
+  expect(payload.fallback === 'intent-check', `expected fallback "intent-check", got ${JSON.stringify(payload.fallback)}`);
+  expect(payload.optimized === DRAFT, `optimized must be the original draft verbatim, got ${JSON.stringify(payload.optimized)}`);
+  return '200 {ok:true, fallback:"intent-check", optimized===draft}';
+});
+
+await behavioural('multi-candidate: a dead second candidate still yields {candidates:2} with a non-empty result', async () => {
+  const host = makeHost([reply(FAITHFUL), fail('second candidate exploded', 'PROVIDER_DOWN')]);
+  apply(host.ctx);
+  const { status, payload } = await post(host.routes, { provider: 'test', model: 'test', text: DRAFT, multiCandidate: true });
+  expect(status === 200, `expected 200, got ${status} ${JSON.stringify(payload)}`);
+  expect(payload?.ok === true, `payload not ok: ${JSON.stringify(payload)}`);
+  expect(payload.candidates === 2, `expected candidates:2, got ${JSON.stringify(payload.candidates)}`);
+  expect(typeof payload.optimized === 'string' && payload.optimized.trim() !== '', `optimized must be non-empty, got ${JSON.stringify(payload.optimized)}`);
+  expect(payload.optimized === FAITHFUL, `candidate A must be kept, got ${JSON.stringify(payload.optimized)}`);
+  expect(host.calls.length === 2, `expected two dispatches (A then dead B), got ${host.calls.length}`);
+  return '200 {ok:true, candidates:2, optimized===candidate A}';
+});
+
+await behavioural('client still consumes data.fallback and has an identical-result check', async () => {
+  const clientText = readFileSync(CLIENT_SOURCE, 'utf8');
+  const readsFallback =
+    /data\s*&&\s*typeof\s+data\.fallback/.test(clientText) || /\bdata\.fallback\b/.test(clientText);
+  expect(readsFallback, 'client/client.js no longer reads data.fallback — a degraded result would be shown as success again');
+  expect(/\bidentical\b/.test(clientText), 'client/client.js no longer has an identical-result check');
+  expect(
+    /optimized\.trim\(\)\s*===\s*text/.test(clientText),
+    'the identical-result check no longer compares the optimized text with the draft',
+  );
+  return 'data.fallback consumed; identical check compares optimized vs draft';
+});
+
+// ------------------------------------------------------------------- report ---
+
+let failures = 0;
+for (const result of results) {
+  if (!result.ok) failures += 1;
+  const mark = result.ok ? 'PASS' : 'FAIL';
+  const detail = result.detail === '' ? '' : ` — ${result.detail}`;
+  console.log(`[${mark}] ${result.name}${detail}`);
+}
+console.log(`\n[fallback-contract] ${results.length - failures}/${results.length} passed`);
+if (failures > 0) {
+  console.error(`[fallback-contract] FAILED: ${failures} case(s)`);
+  process.exit(1);
+}
+console.log('[fallback-contract] OK');

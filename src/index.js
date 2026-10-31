@@ -40,6 +40,7 @@ const OPTIMIZER_TEMPERATURE = 0.4; // stable, focused rewrites without being too
 const CONTEXT_MESSAGE_LIMIT = 6; // recent messages used when "结合上下文" is enabled
 const CONTEXT_CHAR_LIMIT = 8000; // rule-based trimming kicks in above this total length
 const MULTI_CANDIDATE_SERVER = true; // server-side master switch for multi-candidate selection
+const OPTIMIZE_TIMEOUT_MS = 75000; // hard ceiling for one LLM call; bounds the whole optimize request
 
 /* ------------------------------------------------------------------ *
  * Diagnostics (fork-local patch)
@@ -209,6 +210,21 @@ async function collectText(stream) {
   }
   if (failure !== null) throw failure;
   return text.trim();
+}
+
+/**
+ * Bound one await on a promise that may never settle (a stuck provider stream
+ * used to hang the optimize request forever). The timer is always cleared, so a
+ * finished call never leaves a pending timeout behind.
+ */
+function withTimeout(promise, ms, code) {
+  let timer;
+  const guard = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(Object.assign(new Error('optimize timed out'), { code }));
+    }, ms);
+  });
+  return Promise.race([promise, guard]).finally(() => clearTimeout(timer));
 }
 
 function errorPayload(error) {
@@ -472,7 +488,7 @@ export function apply(ctx) {
           temperature: OPTIMIZER_TEMPERATURE,
         };
         if (effort !== undefined) options.reasoningEffort = effort;
-        return collectText(ctx.llm.stream(options));
+        return withTimeout(collectText(ctx.llm.stream(options)), OPTIMIZE_TIMEOUT_MS, 'LLM_TIMEOUT');
       };
 
       /** One candidate with the UNSUPPORTED_REASONING_EFFORT safety net. */
@@ -499,7 +515,7 @@ export function apply(ctx) {
         const focus = JUDGE_FOCUS[style] ?? JUDGE_FOCUS.standard;
         const judgeSystem = 'You are a strict prompt-quality judge. Compare two optimized versions of the same draft prompt. Reply with ONLY a JSON object: {"winner":"A"} or {"winner":"B"}. No other text.';
         const judgeText = `Original draft:\n<original>\n${rawText}\n</original>\n\nCandidate A:\n<candidate>\n${candidateA}\n</candidate>\n\nCandidate B:\n<candidate>\n${candidateB}\n</candidate>\n\nEvaluation focus for this optimization style: pick ${focus}. Also penalize any candidate that lost {{variable}} placeholders, 【...】 marks, or URLs from the original. Output the JSON verdict only.`;
-        const verdict = await collectText(ctx.llm.stream({
+        const verdict = await withTimeout(collectText(ctx.llm.stream({
           provider,
           model,
           messages: [{
@@ -510,7 +526,7 @@ export function apply(ctx) {
           }],
           system: judgeSystem,
           temperature: 0,
-        }));
+        })), OPTIMIZE_TIMEOUT_MS, 'LLM_TIMEOUT');
         const match = verdict.match(/\{\s*"winner"\s*:\s*"(A|B)"\s*\}/);
         return match === null ? null : match[1];
       };
@@ -597,7 +613,7 @@ export function apply(ctx) {
           style,
           multiCandidate,
           code: errorCode(error) || null,
-          message: error?.message ?? String(error),
+          message: String(error?.message ?? error).replace(/\s+/g, ' ').slice(0, 200),
         });
         sendJson(response, 200, { ok: true, optimized: rawText, fallback: 'llm-error' });
       }

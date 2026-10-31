@@ -1,6 +1,6 @@
 {
   "name": "@kylinmoddev/dsh-prompt-refiner",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "DSH 提示词润色插件（dsh-prompt-refiner）：✨ 一键调用当前模型优化草稿。dsh-prompt-optimizer 的独立增强分支，可与原版并存。",
   "type": "module",
   "license": "MIT",
@@ -57,7 +57,8 @@
     "bundle": "node scripts/build.mjs",
     "gates": "node scripts/gates/run.mjs",
     "test": "node scripts/tests/reasoning-effort.test.mjs",
-    "check": "node scripts/build.mjs && node --check lib/index.js && node --check lib/client.js && node scripts/gates/run.mjs && node scripts/tests/reasoning-effort.test.mjs"
+    "test:fallback": "node scripts/tests/fallback-contract.test.mjs",
+    "check": "node scripts/build.mjs && node --check lib/index.js && node --check lib/client.js && node scripts/gates/run.mjs && node scripts/tests/reasoning-effort.test.mjs && node scripts/tests/fallback-contract.test.mjs"
   },
   "engines": {
     "dsh": ">=0.1.7-0",

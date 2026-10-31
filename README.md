@@ -14,9 +14,10 @@ DSH 提示词优化插件：在输入框工具栏放一个 ✨ 按钮，用当�
 - **使用当前模型**：跟随当前会话的模型选择（provider / model / reasoningEffort），无需单独配置。
 - **深度理解**：系统提示词要求模型先分析字面意思、真实意图、角色、任务、上下文、受众、输入、约束、输出格式与歧义点，再动手改写。
 - **优化风格**：`精简` / `标准` / `详细` 三选，在 ▾ 弹出层切换并跨会话记忆。
-- **还原原文**：应用前会把原文备份到 localStorage，随时可一键还原（有备份时 ✨ 组右缘出现一个小圆点提示）。
+- **还原原文**：应用前会把原文备份到 localStorage，随时可一键还原（有备份时 ✨ 组右缘出现一个小圆点提示）。若当前草稿已与备份的优化结果不一致，还原会被阻止并提示，避免覆盖新输入。
 - **预览确认**：可切到「预览确认」，先对照原文与优化结果，确认后再写入。
-- **防覆盖**：直接应用时若请求期间草稿已被改动，自动降级为预览弹窗，不覆盖你正在输入的新内容。
+- **防覆盖**：直接应用时若请求期间草稿已被改动，本次结果直接丢弃并提示（0.5.2 起不再弹预览），不覆盖你正在输入的新内容。
+- **超时保护**：客户端 90 秒中止请求、服务端单次模型调用 75 秒降级；超时只提示失败，不写草稿、不丢原文（见下文「超时与失败降级」）。
 - **上下文感知**：可开启「上下文」，让优化模型参考当前会话最近几条消息。
 - **稳定输出**：服务端固定 `temperature = 0.4`，减少随机放飞。
 - **失败提示**：请求失败或模型无返回时，按钮旁弹出错误 toast（数秒后自动消失），按钮 title 也会保留错误信息。
@@ -73,7 +74,7 @@ dsh-prompt-refiner/
 
 `src/` 与 `client/` 是源码；`lib/` 是构建产物，使用者无需自行构建。
 
-## 调试与日志（fork 补丁，0.5.1）
+## 调试与日志（fork 补丁，0.5.1 起）
 
 0.5.0 引入的「失败熔断」把异常伪装成成功（`ok:true` + 原文 + `fallback`），而前端从未读取 `fallback`，
 于是「模型没改写」被当成「已应用」：输入框纹丝不动，却提示成功。0.5.1 起失败可诊断：
@@ -104,8 +105,109 @@ journalctl -u deepseek-harness -f | grep dsh-prompt-refiner
 **版本自检**
 
 ```sh
-curl -s http://127.0.0.1:3080/dsh-prompt-refiner/ping   # {"version":"0.5.1",...}
+curl -s http://127.0.0.1:3080/dsh-prompt-refiner/ping   # {"version":"0.5.2",...}
 ```
+
+## 超时与失败降级（0.5.2）
+
+0.5.2 给「等待模型」加了两道硬上限，任何一侧超时都不会毁掉草稿：
+
+| 位置 | 常量（文件） | 默认值 | 超时后的行为 |
+| --- | --- | --- | --- |
+| 客户端请求 | `REQUEST_TIMEOUT_MS`（`client/client.js`） | **90 秒** | `AbortController` 中止 fetch，toast「优化超时（90 秒），已保留原文」；不写草稿、不写备份 |
+| 服务端单次 LLM 调用 | `OPTIMIZE_TIMEOUT_MS`（`src/index.js`） | **75 秒** | 抛 `LLM_TIMEOUT`，走既有 fallback 契约返回 200 + 原文 + `fallback:'llm-error'`，前端据此提示失败 |
+
+客户端上限（90s）大于服务端**单次**调用上限（75s），单候选请求通常先由服务端返回结构化降级；
+但多候选模式会顺序执行 2 次生成 + 1 次评判，总耗时可能超过 90s，此时由客户端 90s 兜底中止。
+无论哪一侧超时，草稿都保持原样。
+
+## 重启与健康检查（运维）
+
+> 以下结论来自 2026-10-31 的实测环境（`dsh web`，端口 3080）。
+
+### `~/.dsh/restart-web.sh` 的真实机制
+
+该脚本**不是**服务真正的启动者。它实际做的是：
+
+1. `kill -TERM` 旧的 `dsh ... bin.js web --no-open --host 127.0.0.1 --port 3080` 进程（等待 60 × 0.5s 仍存活则 `kill -9`）；
+2. 等端口 3080 释放；
+3. 之后才用 `nohup bash ~/.dsh/start-web.sh` 尝试自行拉起（对应日志里的 `attempt N -> pid …` / `UP: …` 分支）。
+
+实测第 3 步从未成功执行：`~/.dsh/web-restart.log` 累计 23 条 `restart requested`，`attempt` 出现 **0 次**，
+`UP:` 只有 2026-10-28 的 3 条（脚本演进早期）。旧进程被 kill 后，服务是**由 systemd 单元
+`deepseek-harness.service`（`Restart=always`、`RestartSec=5`）拉起的**：
+
+- `/proc/<dsh web pid>/cgroup` → `0::/system.slice/deepseek-harness.service`；
+- `systemctl show deepseek-harness.service -p Restart -p NRestarts` → `Restart=always`，且 `NRestarts` 随每次 kill 递增。
+
+因此日志停在 `old pid: …` 并不代表重启失败，systemd 通常会在约 5 秒后接管；**不要依赖脚本回显的 URL**。
+
+### 推荐的重启方式
+
+```sh
+# 方式一（推荐，同步等待服务拉起）
+sudo systemctl restart deepseek-harness.service
+
+# 方式二：只杀旧进程，交给 systemd 的 Restart=always
+PID=$(pgrep -f 'dsh/lib/bin.js web --no-open --host 127.0.0.1 --port 3080' | head -1)
+[ -n "$PID" ] && kill -TERM "$PID"
+```
+
+### 健康检查：kill 后轮询 ping 直到 200
+
+不要 kill 完立刻验证，按下面方式轮询插件自检端点，拿到 200 再继续：
+
+```sh
+for i in $(seq 1 60); do
+  code=$(curl -s -o /tmp/refiner-ping.json -w '%{http_code}' --max-time 2 \
+    http://127.0.0.1:3080/dsh-prompt-refiner/ping)
+  if [ "$code" = "200" ]; then
+    cat /tmp/refiner-ping.json; echo; break
+  fi
+  sleep 1
+done
+```
+
+返回的 `{"ok":true,"plugin":"dsh-prompt-refiner","version":"…","revision":"…"}` 中，`version` 就是当前加载的插件版本，
+可用来确认重启后加载的是新构建。服务端日志继续用 `journalctl -u deepseek-harness -f | grep dsh-prompt-refiner` 观察。
+
+## 上游跟进（rebase 流程）
+
+本仓库以 `v0.5.0` 为基线叠加 fork 补丁；上游（`kee0012/dsh-prompt-optimizer`）发布新版本后按下面流程跟进。
+
+### 基线与补丁文件
+
+- **基线 tag**：`v0.5.0`（commit `ad60434`）——fork 从这里分叉。
+- **补丁文件**：`dsh-prompt-refiner-0.5.1-fix.patch`（与仓库同级存放；本机路径 `/home/agentuser/DEEPSEEK/KAI/dsh-prompt-refiner-0.5.1-fix.patch`）——0.5.1-fix 全部改动的单文件记录，
+  可用 `git apply --check` 校验、`git apply --3way` 在干净的 v0.5.0 上重放（已用 v0.5.0 归档验证可干净应用）。
+- 当前分支 = `v0.5.0` + fork 提交；`git diff v0.5.0..HEAD` 应与补丁文件内容对应。
+
+### 跟进步骤
+
+```sh
+git fetch --tags                 # 拉取上游新 tag（v0.5.x）
+git rebase v0.5.x                # 把 v0.5.x 换成实际新 tag，如 v0.5.1 / v0.5.2
+# 冲突逐个解决后：git add <file> && git rebase --continue
+# 需要放弃时：git rebase --abort
+```
+
+若 fork 提交历史被重排过，用 `git rebase --onto v0.5.x v0.5.0` 只把基线之后的 fork 提交搬到新 tag 上。
+
+### 预期冲突点
+
+- `client/client.js` 的 `optimize()`：请求超时/中止、预览与写回分支——90s `AbortController`、写回确认、备份守卫都集中在这里。
+- `src/index.js` 的 `catch`：错误日志、fallback 契约（200 + 原文 + `fallback:'llm-error'`）与 75s 超时降级。
+
+上游只要动过这两处，冲突几乎必然出现；按「保留本 fork 的行为契约」解决（契约见上文「超时与失败降级」）。
+
+### rebase 之后必须验证
+
+```sh
+npm run check           # build + 语法检查 + gates + 单测
+npm run test:fallback   # fallback 行为回归（服务端 4 条 + 客户端静态断言）
+```
+
+两条都通过再提交；随后按「重启与健康检查」重启，并 `curl` ping 确认 `version` 已是新构建。
 
 ## 已知限制
 
@@ -123,9 +225,10 @@ curl -s http://127.0.0.1:3080/dsh-prompt-refiner/ping   # {"version":"0.5.1",...
 ### 从源码构建
 
 ```sh
-npm run build    # src/ 与 client/ → lib/（仅用 Node 内置模块，无构建工具链依赖）
-npm run gates    # 产物一致性门禁
-npm run check    # build + 语法检查 + gates，一条命令跑全链路
+npm run build        # src/ 与 client/ → lib/（仅用 Node 内置模块，无构建工具链依赖）
+npm run gates        # 产物一致性门禁（含 fallback 契约静态断言）
+npm run test:fallback # fallback 行为回归（服务端 4 条 + 客户端静态断言）
+npm run check        # build + 语法检查 + gates + 单测，一条命令跑全链路
 ```
 
 `src/` 与 `client/` 是唯一的手写来源，`lib/` 由构建脚本生成，请不要手改 `lib/`。
