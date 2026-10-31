@@ -270,6 +270,27 @@ await behavioural('client still consumes data.fallback and has an identical-resu
   return 'data.fallback consumed; identical check compares optimized vs draft';
 });
 
+await behavioural('client freshness guards read the live draft, not the click-time snapshot', async () => {
+  const clientText = readFileSync(CLIENT_SOURCE, 'utf8');
+  // Regression: `input` is a React snapshot. Reading it inside the async
+  // response handler compares the OLD draft with itself, so edits typed while
+  // the request was in flight were silently overwritten (found by browser E2E
+  // on 0.5.3). Guards must go through liveComposerDraft().
+  expect(
+    /function liveComposerDraft\(/.test(clientText),
+    'client/client.js no longer defines liveComposerDraft() — the stale-closure guard regressed',
+  );
+  expect(
+    /normalizeDraft\(liveComposerDraft\(input\)\)/.test(clientText),
+    'the in-flight draft guard no longer normalizes a live composer read',
+  );
+  expect(
+    !/fresh\s*=\s*getComposerDraft\(input\)/.test(clientText),
+    'a freshness guard still calls getComposerDraft(input) — that is the click-time snapshot and can never detect a change',
+  );
+  return 'guards use liveComposerDraft(); no guard reads the stale input snapshot';
+});
+
 // ------------------------------------------------------------------- report ---
 
 let failures = 0;

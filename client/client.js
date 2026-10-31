@@ -532,6 +532,23 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
     return readComposerDom();
   }
 
+  /**
+   * Read the draft as it is RIGHT NOW.
+   *
+   * `getComposerDraft(input)` must never be used inside an async callback that
+   * outlives the render: the `input` object is a snapshot captured when the
+   * click happened, so every later comparison compares the old draft with
+   * itself and a guard built on it can never fire. The editor DOM, by
+   * contrast, is the text the user is actually looking at, so it wins when
+   * the composer is mounted.
+   */
+  function liveComposerDraft(input) {
+    if (findComposerTextarea() !== null || findComposerEditable() !== null) {
+      return readComposerDom();
+    }
+    return input && typeof input.draft === "string" ? input.draft : "";
+  }
+
   function normalizeDraft(text) {
     return String(text == null ? "" : text).replace(/\s+/g, " ").trim();
   }
@@ -908,6 +925,10 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
     function optimize() {
       var text = getComposerDraft(input).trim();
       if (text === "" || !current) return;
+      // Baseline for the "did the user edit while we were waiting?" check.
+      // Captured from the DOM at click time so it is comparable with the DOM
+      // read inside the response handler (both normalized the same way).
+      var baseline = normalizeDraft(liveComposerDraft(input));
       setPopoverOpen(false);
       setBusy(true);
       setError(null);
@@ -1007,8 +1028,10 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
 
           if (settings.applyMode === "direct") {
             // Guard: do not clobber text the user typed while the request was in flight.
-            var fresh = getComposerDraft(input).trim();
-            if (fresh !== text) {
+            // The DOM read is essential: `input` is a click-time snapshot and would
+            // compare the old draft with itself, so the guard could never fire.
+            var fresh = normalizeDraft(liveComposerDraft(input));
+            if (fresh !== baseline) {
               logWarn("draft changed during request; result discarded", {
                 requestChars: text.length,
                 currentChars: fresh.length,
@@ -1054,8 +1077,8 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
 
     function applyOptimized() {
       if (!preview) return;
-      var fresh = getComposerDraft(input).trim();
-      if (fresh !== preview.original.trim()) {
+      var fresh = normalizeDraft(liveComposerDraft(input));
+      if (fresh !== normalizeDraft(preview.original)) {
         logWarn("draft changed since preview; refusing to overwrite", {
           previewChars: preview.original.length,
           currentChars: fresh.length,
@@ -1094,8 +1117,8 @@ window.__ModuleLoader__.load({ id: "@kylinmoddev/dsh-prompt-refiner", factory: (
       if (!saved) return;
       // A backup only describes the rewrite it belongs to. If the draft has
       // moved on since then, restoring would silently discard newer edits.
-      var currentText = getComposerDraft(input).trim();
-      if (currentText !== String(saved.optimized || "").trim()) {
+      var currentText = normalizeDraft(liveComposerDraft(input));
+      if (currentText !== normalizeDraft(saved.optimized)) {
         logWarn("restore blocked: draft diverged from the optimized text", {
           currentChars: currentText.length,
           optimizedChars: String(saved.optimized || "").length,
