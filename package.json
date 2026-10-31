@@ -1,6 +1,6 @@
 {
   "name": "@kylinmoddev/dsh-prompt-refiner",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "description": "DSH 提示词润色插件（dsh-prompt-refiner）：✨ 一键调用当前模型优化草稿。dsh-prompt-optimizer 的独立增强分支，可与原版并存。",
   "type": "module",
   "license": "MIT",

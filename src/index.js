@@ -449,9 +449,19 @@ export function apply(ctx) {
 
       // If the browser goes away mid-flight, cancel the LLM work instead of
       // finishing a response nobody will read.
+      //
+      // NOTE: `request.on('close')` is the wrong signal — Node emits it as soon
+      // as the request BODY has been consumed, so every call aborted instantly.
+      // The disconnect signal is the response's 'close' while the response is
+      // still unfinished (plus the legacy 'aborted' event on the request).
       const requestAbort = new AbortController();
       if (typeof request.on === 'function') {
-        request.on('close', () => requestAbort.abort());
+        request.on('aborted', () => requestAbort.abort());
+      }
+      if (typeof response.on === 'function') {
+        response.on('close', () => {
+          if (response.writableFinished !== true) requestAbort.abort();
+        });
       }
 
       if (!originAllowed(request)) {

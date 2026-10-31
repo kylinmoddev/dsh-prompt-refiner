@@ -273,6 +273,51 @@ await behavioural('client timeout budget is generous and mode-aware', async () =
   return `single ${single}ms, multi ${multi}ms, notice ${slow}ms (notice only, no abort)`;
 });
 
+await behavioural('a completed response never aborts the provider call', async () => {
+  // Regression: aborting on the request stream's 'close' event killed every
+  // call (Node emits it right after the body is consumed). Only an unfinished
+  // response may abort the provider.
+  let streamSignal = null;
+  const host = makeHost([(options) => {
+    streamSignal = options.signal;
+    return (async function* () {
+      yield { type: 'text-delta', text: DRAFT + '\n\n（改写补充说明）' };
+      yield { type: 'finish', reason: { kind: 'stop' } };
+    })();
+  }]);
+  apply(host.ctx);
+  const handlers = new Map();
+  const request = {
+    method: 'POST',
+    headers: {},
+    on() {},
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.from(JSON.stringify({ provider: 'test', model: 'test', text: DRAFT }));
+    },
+  };
+  let payload = null;
+  const response = {
+    writableFinished: false,
+    on(event, fn) {
+      handlers.set(event, fn);
+    },
+    writeHead() {},
+    end(text) {
+      payload = JSON.parse(text);
+      this.writableFinished = true;
+      // Browsers close the connection after the response is sent; the handler
+      // must not treat that as a cancellation.
+      const close = handlers.get('close');
+      if (typeof close === 'function') close();
+    },
+  };
+  await host.routes.get(ROUTE)(request, response);
+  expect(payload?.ok === true, `a completed request must stay ok, got ${JSON.stringify(payload)}`);
+  expect(payload?.fallback === undefined, `a completed request must not degrade, got fallback ${JSON.stringify(payload?.fallback)}`);
+  expect(streamSignal !== null && streamSignal.aborted === false, 'a completed call must not abort the provider signal');
+  return 'finished response keeps ok:true and never aborts the provider';
+});
+
 await behavioural('a client disconnect cancels the provider call (code CLIENT_CLOSED)', async () => {
   const fresh = await importWithTimeoutEnv(75000);
   let streamSignal = null;
@@ -297,6 +342,7 @@ await behavioural('a client disconnect cancels the provider call (code CLIENT_CL
   fresh.apply(host.ctx);
 
   const listeners = new Map();
+  const responseListeners = new Map();
   const request = {
     method: 'POST',
     headers: {},
@@ -310,19 +356,24 @@ await behavioural('a client disconnect cancels the provider call (code CLIENT_CL
   let status = 0;
   let payload = null;
   const response = {
+    writableFinished: false,
+    on(event, fn) {
+      responseListeners.set(event, fn);
+    },
     writeHead(code) {
       status = code;
     },
     end(text) {
       payload = JSON.parse(text);
+      this.writableFinished = true;
     },
   };
   const handlerDone = host.routes.get(ROUTE)(request, response);
 
   await Promise.race([startedCall, new Promise((resolve) => setTimeout(() => resolve(false), 1000))]);
   expect(streamSignal !== null, 'the provider was never called');
-  const close = listeners.get('close');
-  expect(typeof close === 'function', 'the handler never subscribed to the request close event');
+  const close = responseListeners.get('close');
+  expect(typeof close === 'function', 'the handler never subscribed to the response close event');
   close();
 
   const aborted = await Promise.race([
