@@ -41,6 +41,41 @@ const CONTEXT_MESSAGE_LIMIT = 6; // recent messages used when "结合上下文" 
 const CONTEXT_CHAR_LIMIT = 8000; // rule-based trimming kicks in above this total length
 const MULTI_CANDIDATE_SERVER = true; // server-side master switch for multi-candidate selection
 
+/* ------------------------------------------------------------------ *
+ * Diagnostics (fork-local patch)
+ *
+ * Upstream swallowed every failure into `{ok:true, optimized:<original>}`
+ * without emitting a single log line, so a no-op rewrite was
+ * indistinguishable from a real one. These helpers give the server half a
+ * trace; the browser devtools console shows the client half.
+ * ------------------------------------------------------------------ */
+const LOG_PREFIX = '[dsh-prompt-refiner]';
+
+function logInfo(message, detail) {
+  try {
+    console.info(LOG_PREFIX, message, detail === undefined ? '' : detail);
+  } catch {
+    // logging must never break the request
+  }
+}
+
+function logWarn(message, detail) {
+  try {
+    console.warn(LOG_PREFIX, message, detail === undefined ? '' : detail);
+  } catch {
+    // ignore
+  }
+}
+
+function logError(message, detail) {
+  try {
+    console.error(LOG_PREFIX, message, detail === undefined ? '' : detail);
+  } catch {
+    // ignore
+  }
+}
+
+
 const OPTIMIZER_SYSTEM_PROMPT = `You are a world-class prompt engineering expert. The user gives you a draft prompt. Your job is to deeply understand it, then rewrite it into a high-quality, ready-to-use prompt.
 
 FIRST, silently analyze the user's input as thoroughly as possible. Consider at least:
@@ -207,7 +242,19 @@ function extractIntentItems(text) {
  * anchors missing from the optimized text.
  */
 function missingIntentItems(original, optimized) {
-  return extractIntentItems(original).filter((item) => !optimized.includes(item));
+  // Compare after unicode/whitespace normalization: the model routinely
+  // rewrites full-width punctuation to half-width (or collapses spaces)
+  // without losing meaning, and a strict substring test turned those
+  // harmless edits into a full revert to the original draft.
+  const haystack = normalizeAnchor(optimized);
+  return extractIntentItems(original).filter((item) => !haystack.includes(normalizeAnchor(item)));
+}
+
+function normalizeAnchor(text) {
+  return String(text)
+    .normalize('NFKC')
+    .replace(/[\s\u3000]+/g, ' ')
+    .trim();
 }
 
 /**
@@ -405,6 +452,15 @@ export function apply(ctx) {
       }];
 
       const system = buildSystemPrompt(style, contextText);
+      logInfo('optimize request', {
+        provider,
+        model,
+        style,
+        includeContext,
+        multiCandidate,
+        chars: rawText.length,
+        hasContext: contextText !== '',
+      });
 
       /** One raw dispatch; `effort` undefined means "let the model decide". */
       const dispatch = async (effort) => {
@@ -463,18 +519,47 @@ export function apply(ctx) {
         const effort = await acceptedReasoningEffort(ctx, provider, model, reasoningEffort);
         if (multiCandidate && MULTI_CANDIDATE_SERVER) {
           const candidateA = await generateCandidate(effort);
-          const candidateB = await generateCandidate(effort);
-          if (candidateA === '' || candidateB === '') {
+          let candidateB = '';
+          try {
+            candidateB = await generateCandidate(effort);
+          } catch (error) {
+            // One dead candidate must not kill the whole request: keep A.
+            logWarn('multi-candidate: second candidate failed', {
+              code: errorCode(error) || null,
+              message: error?.message ?? String(error),
+            });
+          }
+          const usableA = candidateA !== '';
+          const usableB = candidateB !== '';
+          if (!usableA && !usableB) {
+            logWarn('multi-candidate: both candidates empty');
             throw new Error('the model returned an empty candidate');
           }
           let winnerLetter = 'A';
-          try {
-            winnerLetter = (await judgeCandidates(candidateA, candidateB)) ?? 'A';
-          } catch {
-            winnerLetter = 'A'; // judge failed → keep candidate A, never fail the request
+          if (usableA && usableB) {
+            try {
+              winnerLetter = (await judgeCandidates(candidateA, candidateB)) ?? 'A';
+            } catch (error) {
+              logWarn('multi-candidate: judge failed, keeping candidate A', {
+                message: error?.message ?? String(error),
+              });
+              winnerLetter = 'A'; // judge failed → keep candidate A, never fail the request
+            }
+          } else {
+            winnerLetter = usableA ? 'A' : 'B';
+            logWarn('multi-candidate: degrading to the only usable candidate', {
+              kept: winnerLetter,
+            });
           }
           const winner = winnerLetter === 'B' ? candidateB : candidateA;
           const finalized = finalizeOptimized(rawText, winner);
+          if (finalized.fallback !== undefined) {
+            logWarn('optimize degraded to the original draft', {
+              reason: finalized.fallback,
+              style,
+              multiCandidate: true,
+            });
+          }
           sendJson(response, 200, { ok: true, optimized: finalized.optimized, fallback: finalized.fallback, candidates: 2 });
           return;
         }
@@ -489,6 +574,13 @@ export function apply(ctx) {
           optimized = await generateCandidate(undefined);
         }
         const finalized = finalizeOptimized(rawText, optimized);
+        if (finalized.fallback !== undefined) {
+          logWarn('optimize degraded to the original draft', {
+            reason: finalized.fallback,
+            style,
+            chars: rawText.length,
+          });
+        }
         // Legacy path: byte-identical success payload when nothing fell back.
         if (finalized.fallback === undefined) {
           sendJson(response, 200, { ok: true, optimized: finalized.optimized });
@@ -498,6 +590,15 @@ export function apply(ctx) {
       } catch (error) {
         // Failure fallback contract: LLM error/timeout/empty must not fail the
         // feature — return the original draft with the reason in `fallback`.
+        // The client now surfaces that reason instead of claiming success.
+        logError('optimize failed; returning the original draft', {
+          provider,
+          model,
+          style,
+          multiCandidate,
+          code: errorCode(error) || null,
+          message: error?.message ?? String(error),
+        });
         sendJson(response, 200, { ok: true, optimized: rawText, fallback: 'llm-error' });
       }
     };
