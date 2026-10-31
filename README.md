@@ -73,11 +73,46 @@ dsh-prompt-refiner/
 
 `src/` 与 `client/` 是源码；`lib/` 是构建产物，使用者无需自行构建。
 
+## 调试与日志（fork 补丁，0.5.1）
+
+0.5.0 引入的「失败熔断」把异常伪装成成功（`ok:true` + 原文 + `fallback`），而前端从未读取 `fallback`，
+于是「模型没改写」被当成「已应用」：输入框纹丝不动，却提示成功。0.5.1 起失败可诊断：
+
+**前端（浏览器 DevTools 控制台）**
+
+```
+[dsh-prompt-refiner] optimize request  {...}
+[dsh-prompt-refiner] optimize response {ok, fallback, optimizedChars, identicalToDraft}
+[dsh-prompt-refiner] optimize produced no change; original kept {fallback: 'empty-result'}
+[dsh-prompt-refiner] draft written via inputActions.setDraft {chars}
+[dsh-prompt-refiner] draft write confirmed {chars}
+```
+
+最近 50 条事件也在内存里：`window.__dshPromptRefinerDebug.events`。
+
+当 `optimized` 与草稿相同（或带 `fallback`）时，插件**不再写草稿、不写备份**，而是弹红色提示说明原因
+（`llm-error` 模型调用失败 / `empty-result` 返回为空 / `intent-check` 改写丢失 `【】`、`{{变量}}`、链接）。
+
+**服务端（走 journald，不落在插件目录）**
+
+```sh
+journalctl -u deepseek-harness -f | grep dsh-prompt-refiner
+```
+
+每个请求、每次降级、每次异常都会记录 provider / model / style / 字数 / 失败原因与错误码。
+
+**版本自检**
+
+```sh
+curl -s http://127.0.0.1:3080/dsh-prompt-refiner/ping   # {"version":"0.5.1",...}
+```
+
 ## 已知限制
 
 - 优化结果的质量取决于当前所选模型，不同模型的表现差异明显。
 - 「还原原文」依赖 localStorage 备份，只在同一浏览器、同一会话内有效；清理站点数据或更换设备后无法还原。
 - 优化是一次完整的全文重写，草稿越长耗时越久；请求体上限为 1 MiB。
+- 本 fork 以 `file:` 依赖装入 profile，`dsh plugin update` 不会自动跟进上游；需要时可重新从上游安装回退。
 
 ## 反馈与贡献
 
