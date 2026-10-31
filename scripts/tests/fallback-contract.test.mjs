@@ -7,26 +7,50 @@
  * worked while nothing changed. The route now reports WHY it degraded in
  * `fallback` and the client surfaces it instead of claiming success.
  *
- * Four server-side behaviours are asserted end-to-end against the registered
+ * Six server-side behaviours are asserted end-to-end against the registered
  * route (not against a helper): an LLM error, an empty stream, a lost 【...】
- * anchor, and a dead second candidate in multi-candidate mode. One client-side
- * static assertion guards the browser half from silently dropping the
- * `fallback`/`identical` handling again.
+ * anchor, a dead second candidate in multi-candidate mode, an AbortSignal
+ * forwarded on the happy path, and a timed-out call that actually ABORTS the
+ * provider stream (a call that is merely ignored still burns quota). One
+ * client-side static assertion guards the browser half from silently dropping
+ * the `fallback`/`identical` handling again.
+ *
+ * The timeout case reloads the module with `DSH_PROMPT_REFINER_TIMEOUT_MS=50`
+ * (a cache-busting query string forces a fresh evaluation), so the suite stays
+ * under a second instead of waiting the production 75s.
  *
  * Usage: node scripts/tests/fallback-contract.test.mjs [module-path]
  * The optional argument points the cases at another artifact (for example
- * `../../lib/index.js`) so the test can be run against the built bundle.
+ * `../../lib/index.js`) so the test can be run against the built bundle; the
+ * two signal cases require a build that includes the 0.5.2 abort path.
  * Exit code 0 = every case passed, 1 = a case failed.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const { apply } = await import(process.argv[2] ?? '../../src/index.js');
+const MODULE_SPEC = process.argv[2] ?? '../../src/index.js';
+const { apply } = await import(MODULE_SPEC);
 
 const ROUTE = '/dsh-prompt-refiner/optimize';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const CLIENT_SOURCE = resolve(ROOT, 'client/client.js');
+
+/**
+ * Import a FRESH module instance with a tiny timeout budget. The constant is
+ * read at module top level, so a cache-busting query string is required after
+ * the default instance (75s) has already been evaluated.
+ */
+async function importWithTimeoutEnv(ms) {
+  const previous = process.env.DSH_PROMPT_REFINER_TIMEOUT_MS;
+  process.env.DSH_PROMPT_REFINER_TIMEOUT_MS = String(ms);
+  try {
+    return await import(`${MODULE_SPEC}?timeout=${ms}-${Date.now()}`);
+  } finally {
+    if (previous === undefined) delete process.env.DSH_PROMPT_REFINER_TIMEOUT_MS;
+    else process.env.DSH_PROMPT_REFINER_TIMEOUT_MS = previous;
+  }
+}
 
 // --------------------------------------------------------------- fake host ---
 
@@ -180,6 +204,57 @@ await behavioural('multi-candidate: a dead second candidate still yields {candid
   expect(payload.optimized === FAITHFUL, `candidate A must be kept, got ${JSON.stringify(payload.optimized)}`);
   expect(host.calls.length === 2, `expected two dispatches (A then dead B), got ${host.calls.length}`);
   return '200 {ok:true, candidates:2, optimized===candidate A}';
+});
+
+await behavioural('a call that finishes in time forwards a live AbortSignal', async () => {
+  const host = makeHost([reply(FAITHFUL)]);
+  apply(host.ctx);
+  const { status, payload } = await post(host.routes, { provider: 'test', model: 'test', text: DRAFT });
+  expect(status === 200, `expected 200, got ${status} ${JSON.stringify(payload)}`);
+  expect(payload?.fallback === undefined, `a healthy rewrite must not carry a fallback: ${JSON.stringify(payload)}`);
+  const signal = host.calls[0]?.signal;
+  expect(signal instanceof AbortSignal, 'ctx.llm.stream received no AbortSignal on the happy path');
+  expect(signal.aborted === false, 'signal was already aborted before the call finished');
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(signal.aborted === false, 'signal aborted shortly after a successful call (timer must be cleared, not fired)');
+  return 'options.signal is a live AbortSignal, never aborted';
+});
+
+await behavioural('a timed-out call actually aborts the provider stream signal', async () => {
+  const started = Date.now();
+  const fresh = await importWithTimeoutEnv(50);
+  let streamSignal = null;
+  let resolveAbort;
+  const abortObserved = new Promise((resolve) => {
+    resolveAbort = resolve;
+  });
+  // A provider that accepts the call and then never yields anything. Only a
+  // real abort (not just "stop waiting") can stop it consuming quota.
+  const hanging = (options) => {
+    streamSignal = options.signal;
+    expect(streamSignal instanceof AbortSignal, 'timeout case: ctx.llm.stream received no AbortSignal');
+    if (streamSignal.aborted) resolveAbort(true);
+    else streamSignal.addEventListener('abort', () => resolveAbort(true), { once: true });
+    return (async function* () {
+      await new Promise(() => {});
+    })();
+  };
+  const host = makeHost([hanging]);
+  fresh.apply(host.ctx);
+  const { status, payload } = await post(host.routes, { provider: 'test', model: 'test', text: DRAFT });
+  expect(status === 200, `expected 200, got ${status} ${JSON.stringify(payload)}`);
+  expect(payload?.ok === true, `payload not ok: ${JSON.stringify(payload)}`);
+  expect(payload.fallback === 'llm-error', `expected fallback "llm-error", got ${JSON.stringify(payload.fallback)}`);
+  expect(payload.optimized === DRAFT, `optimized must be the original draft verbatim, got ${JSON.stringify(payload.optimized)}`);
+  const aborted = await Promise.race([
+    abortObserved,
+    new Promise((resolve) => setTimeout(() => resolve(false), 1000)),
+  ]);
+  expect(aborted === true, 'the provider signal was never aborted — the timed-out call was ignored, not cancelled');
+  expect(streamSignal.aborted === true, 'signal.aborted is still false after the timeout');
+  const elapsed = Date.now() - started;
+  expect(elapsed < 5000, `test took ${elapsed}ms — the per-test timeout budget was not overridden`);
+  return `200 + original + llm-error; provider signal aborted after ~50ms (case ${elapsed}ms)`;
 });
 
 await behavioural('client still consumes data.fallback and has an identical-result check', async () => {
