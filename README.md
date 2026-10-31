@@ -105,21 +105,25 @@ journalctl -u deepseek-harness -f | grep dsh-prompt-refiner
 **版本自检**
 
 ```sh
-curl -s http://127.0.0.1:3080/dsh-prompt-refiner/ping   # {"version":"0.5.2",...}
+curl -s http://127.0.0.1:3080/dsh-prompt-refiner/ping   # {"version":"0.5.6",...}
 ```
 
-## 超时与失败降级（0.5.2）
+## 超时与失败降级（0.5.5 起）
 
-0.5.2 给「等待模型」加了两道硬上限，任何一侧超时都不会毁掉草稿：
+0.5.2 最初给客户端设了 **90 秒硬上限**，实测证明太紧：12k 字草稿 + 多候选需要 100 秒以上，
+90 秒一到客户端就 abort，而服务端还在算——等于白烧一次调用。0.5.5 起改成"预算 + 提示"两段式：
 
-| 位置 | 常量（文件） | 默认值 | 超时后的行为 |
+| 位置 | 常量（文件） | 默认值 | 到达时的行为 |
 | --- | --- | --- | --- |
-| 客户端请求 | `REQUEST_TIMEOUT_MS`（`client/client.js`） | **90 秒** | `AbortController` 中止 fetch，toast「优化超时（90 秒），已保留原文」；不写草稿、不写备份 |
-| 服务端单次 LLM 调用 | `OPTIMIZE_TIMEOUT_MS`（`src/index.js`） | **75 秒** | 抛 `LLM_TIMEOUT`，走既有 fallback 契约返回 200 + 原文 + `fallback:'llm-error'`，前端据此提示失败 |
+| 客户端·单候选 | `REQUEST_TIMEOUT_MS`（`client/client.js`） | **180 秒** | `AbortController` 中止 fetch，toast 提示实际上限；不写草稿、不写备份 |
+| 客户端·多候选 | `MULTI_CANDIDATE_TIMEOUT_MS`（`client/client.js`） | **300 秒** | 同上（2 次生成 + 1 次裁判，是单候选的 2~3 倍） |
+| 客户端·慢请求提示 | `SLOW_REQUEST_NOTICE_MS`（`client/client.js`） | **90 秒** | **只弹提示「生成较慢，仍在等待（最长 N 秒）」，绝不中断** |
+| 服务端·单次 LLM 调用 | `OPTIMIZE_TIMEOUT_MS`（`src/index.js`） | **75 秒**（可用 `DSH_PROMPT_REFINER_TIMEOUT_MS` 覆盖） | 抛 `LLM_TIMEOUT`，走 fallback 契约返回 200 + 原文 + `fallback:'llm-error'` |
+| 服务端·客户端断开 | — | — | 响应未完成即关闭时 abort 底层调用，日志 `code:'CLIENT_CLOSED'` |
 
-客户端上限（90s）大于服务端**单次**调用上限（75s），单候选请求通常先由服务端返回结构化降级；
-但多候选模式会顺序执行 2 次生成 + 1 次评判，总耗时可能超过 90s，此时由客户端 90s 兜底中止。
-无论哪一侧超时，草稿都保持原样。
+多候选的最坏情况是 3 次调用，所以客户端预算必须大于 `3 × 75s`；`fallback-contract.test.mjs`
+里有一条断言专门守这个关系（单候选 ≥120s、多候选 ≥240s 且大于单候选、提示线早于死线），
+防止有人再把 90s 改回来。无论哪一侧超时，草稿都保持原样。
 
 ## 重启与健康检查（运维）
 
@@ -209,12 +213,61 @@ npm run test:fallback   # fallback 行为回归（服务端 4 条 + 客户端静
 
 两条都通过再提交；随后按「重启与健康检查」重启，并 `curl` ping 确认 `version` 已是新构建。
 
+## 踩坑记录（fork 本地，rebase 时不要丢）
+
+这些都是真机上踩出来的，每条都配了会变红的回归测试；rebase 上游时如果冲突，优先保这里的行为。
+
+### 1. `request.on('close')` 不是"浏览器断开"信号（0.5.5 事故）
+
+- **现象**：升级后每次优化请求 **87ms** 就返回 `fallback:"llm-error"` + 原文，UI 提示「模型未产生改动（模型调用失败）」。
+- **根因**：0.5.5 为实现"客户端断开就取消"，在 handler 里写了 `request.on('close', () => abort())`。
+  Node 对 `IncomingMessage` 的 `close` 语义是**请求体读完后即触发**（不是对端断开），于是服务端刚读完 body 就取消了自己的 LLM 调用。
+- **正确写法**（0.5.6）：
+
+  ```js
+  const requestAbort = new AbortController();
+  request.on('aborted', () => requestAbort.abort());          // 客户端真中断
+  response.on('close', () => {                                 // 响应没写完就关闭 = 断开
+    if (response.writableFinished !== true) requestAbort.abort();
+  });
+  ```
+
+- **回归测试**：`a completed response never aborts the provider call`（断言正常完成时 `ok:true`、无 `fallback`、`signal.aborted === false`），
+  以及 `a client disconnect cancels the provider call (code CLIENT_CLOSED)`。
+- **教训**：加"取消"逻辑时，必须同时写"不该取消"的对照用例，否则一刀切取消会被误当成正常降级。
+
+### 2. React 闭包快照 ≠ 实时草稿（0.5.3 事故）
+
+- **现象**：请求发出后用户在等待期间打字，结果返回时**用户的输入被整段覆盖**，还提示"已应用"。
+- **根因**：守卫写成 `getComposerDraft(input)`，而 `input` 是点击那一刻的 React 快照；在 `.then` 里比较的是旧值和旧值自己，永远相等。
+- **正确做法**：`liveComposerDraft()` 读编辑器 DOM，并用 `normalizeDraft()` 归一化后比较（Lexical 的换行会被渲染成额外空行）。
+- **回归测试**：`client freshness guards read the live draft, not the click-time snapshot`。
+
+### 3. 客户端超时必须大于服务端最坏情况（0.5.4 事故）
+
+- **现象**：12k 字草稿 + 多候选，90 秒客户端中止，但服务端仍在跑 2 次生成 + 1 次裁判，结果永远拿不回来。
+- **根因**：客户端 90s < 服务端 `3 × 75s` 的最坏情况，且中止后服务端不知道客户端已经走了。
+- **修复**：客户端 180s / 300s 两档预算 + 90s 仅提示；服务端监听断开并 `abort()`。
+- **回归测试**：`client timeout budget is generous and mode-aware`。
+
+### 4. `file:` 目录依赖会硬链接穿透到生产
+
+- **现象**：profile 里 `node_modules/.../lib/client.js` 与仓库文件同 inode；改仓库即改线上，删仓库则插件加载失败。
+- **修复**：`npm pack` 出 tgz 再用 `dsh plugin --profile web add file:...tgz` 安装，文件被复制而不是硬链。
+- **验证**：`stat -c '%h %i'` 两侧 inode 不同、链接数为 1。
+
+### 5. 网关/代理类错误要能区分（0.5.6）
+
+- 非法 JSON 曾被 `errorPayload()` 统一兜底成 `LLM_ERROR`；现在 `readJsonBody` 的解析错误带 `code:'INVALID_JSON'`。
+- 排查时先看 `code`：`INVALID_JSON` / `INVALID_REQUEST` / `BODY_TOO_LARGE` 是请求问题，`NO_ADAPTER` / `LLM_TIMEOUT` / `CLIENT_CLOSED` 才是链路问题。
+
 ## 已知限制
 
 - 优化结果的质量取决于当前所选模型，不同模型的表现差异明显。
 - 「还原原文」依赖 localStorage 备份，只在同一浏览器、同一会话内有效；清理站点数据或更换设备后无法还原。
 - 优化是一次完整的全文重写，草稿越长耗时越久；请求体上限为 1 MiB。
-- 本 fork 以 `file:` 依赖装入 profile，`dsh plugin update` 不会自动跟进上游；需要时可重新从上游安装回退。
+- 本 fork 以 tgz（`file:` 指向打包产物）装入 profile，`dsh plugin update` 不会自动跟进上游；需要时可重新从上游安装回退。
+- 多候选模式下 12k 字级别的草稿约需 85~105 秒，属正常耗时；超过 300 秒才会被客户端中止。
 
 ## 反馈与贡献
 
@@ -227,7 +280,7 @@ npm run test:fallback   # fallback 行为回归（服务端 4 条 + 客户端静
 ```sh
 npm run build        # src/ 与 client/ → lib/（仅用 Node 内置模块，无构建工具链依赖）
 npm run gates        # 产物一致性门禁（含 fallback 契约静态断言）
-npm run test:fallback # fallback 行为回归（服务端 4 条 + 客户端静态断言）
+npm run test:fallback # fallback/取消/超时预算回归（11 条：服务端行为 8 条 + 客户端静态守卫 3 条）
 npm run check        # build + 语法检查 + gates + 单测，一条命令跑全链路
 ```
 
